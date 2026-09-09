@@ -1,27 +1,38 @@
 # BookLens
 
-A mobile-first web application for turning printed pages into editable text. Phase 2 supports live camera preview and manual capture of one page in memory. OCR and saved sessions are not implemented.
+A mobile-first web application for turning printed pages into editable text. Phase 3 supports manual camera capture, English browser OCR, multi-page editing, and a combined TXT download. Sessions are in memory only.
 
 ## Current Feature Status
 
 - [x] Vue/Node project foundation
 - [x] Mobile camera access (physical phone verification still required)
 - [x] Manual page capture
-- [ ] OCR
-- [ ] Page detection
-- [ ] Automatic scanning
-- [ ] Saved scan sessions
-- [ ] TXT export
+- [x] Browser OCR with Tesseract.js
+- [x] Multi-page scan sessions
+- [x] Editable OCR review
+- [x] TXT export
+- [ ] Page boundary detection
+- [ ] Perspective correction
+- [ ] Automatic page capture
+- [ ] Supabase persistence
+- [ ] Authentication
+- [ ] AI OCR cleanup
 
 ## Test the Camera
 
-Run `npm.cmd run dev` from the project root and open http://localhost:5173/scan on your computer. Click Start Camera and allow webcam permission. Wait for the live preview, then Capture. Use Page displays a placeholder for the next phase; Retake discards the image and reuses the active camera without requesting permission again. Stop Camera releases the camera; navigating away also stops all tracks and discards the image. If the camera was stopped during review, Retake starts it again.
+Run `npm.cmd run dev` from the project root and open http://localhost:5173/scan on your computer. Click Start Camera and allow webcam permission. Wait for the live preview, then Capture. Retake discards the image and reuses the active camera. Use Page starts English OCR with real per-stage progress. Review/edit the text, then Add Page. Repeat with Scan Next Page; Finish opens /review. There you can edit or delete pages, preview combined text, and Download TXT. Start New Scan asks before clearing an existing document.
 
-Capture uses the video frame's actual dimensions, not its displayed CSS size. A PNG Blob and object URL stay in memory only; no image is uploaded or persisted. The camera intentionally remains on while reviewing for a quick retake, with a visible Stop Camera control.
+Raw OCR is preserved separately from your edits. Exports use the edited text in page order, separated by three newline characters, without artificial page headings. Very short OCR results require explicit acknowledgement before adding. Failed OCR retains the image for Try Again or Retake.
 
-Camera access requires a secure context: localhost works on desktop, but an ordinary phone LAN URL such as `http://192.168.x.x:5173` generally does not. Prefer the project's future HTTPS Vercel deployment/preview for real phone testing. No insecure workaround or cloud deployment is included. See [MDN getUserMedia](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia).
+Accepted pages survive navigation between /scan and /review. Refreshing or closing the tab clears them; download first. Unaccepted captures/drafts are discarded on leaving /scan. Stop Camera releases the camera; navigating away also stops all tracks. Returning to scan restarts it on request.
 
-On Chrome Android and Safari iPhone, manually check rear-camera selection, allow/deny permissions, portrait/landscape layout, readable still captures, fast Retake, Stop Camera, and the camera indicator turning off after navigation. Rear-camera and resolution constraints are preferences; the browser may select another available camera. Device interruptions and backgrounding behavior can vary by mobile browser.
+Capture uses the video frame's actual dimensions, not its displayed CSS size. A PNG Blob and object URL stay in memory only; no image is uploaded or persisted. The photograph is discarded on Add Page, Retake, or navigation. The camera intentionally remains on during scanning/review for a quick next capture, with a visible Stop Camera control.
+
+Tesseract.js loads lazily on the first Use Page. One English worker is reused while /scan stays mounted, then terminated on leaving. Worker/engine/language resources download from Tesseract's default versioned CDN paths; language data may be cached in browser IndexedDB. This is an OCR resource cache, not saved user pages or offline app support. Initial use requires internet access and can be slower than later pages. If initialization is cancelled before the library returns its worker handle, cleanup occurs when that handle becomes available. A 3-minute timeout returns stalled OCR to a retryable error. See [Tesseract worker documentation](https://github.com/naptha/tesseract.js/blob/master/docs/api.md).
+
+Camera access requires a secure context: localhost works on desktop, but an ordinary phone LAN URL such as `http://192.168.x.x:5173` generally does not. Use the project's HTTPS Vercel deployment/preview for real phone testing. See [MDN getUserMedia](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia).
+
+On Chrome Android and Safari iPhone, manually check rear-camera selection, allow/deny permissions, portrait/landscape layout, readable still captures, Retake, OCR progress/results, editing two pages, TXT download, Stop Camera, and the camera indicator turning off after Finish. Rear-camera and resolution constraints are preferences. Keep the tab foregrounded during OCR; mobile browsers may suspend background work. Full-resolution OCR uses substantial temporary memory; one image is processed at a time and only text is retained after acceptance. Blurry, tilted, shadowed, or curved pages may need a rescan and manual corrections until preprocessing is implemented.
 
 ## Architecture
 
@@ -29,7 +40,7 @@ On Chrome Android and Safari iPhone, manually check rear-camera selection, allow
 Vue/Vite -> Node/Express API -> Supabase (future)
 ```
 
-Vue uses Composition API single-file components, Vue Router for navigation, and Pinia registered for future shared state. Express keeps HTTP handling separate from business logic and future persistence. In Docker, Nginx serves the production frontend and proxies API requests. See [architecture details](docs/architecture.md).
+Vue uses Composition API single-file components, Vue Router for navigation, and Pinia for the current text document. Camera capture, Tesseract OCR, and TXT export all run in the browser. Express keeps HTTP handling separate from future business logic and persistence. In Docker, Nginx serves the production frontend and proxies API requests. See [architecture details](docs/architecture.md).
 
 The root is a simple command runner, not an npm workspace. Each application has its own package.json and lockfile so Vercel and Render can install independently from their configured root directories.
 
@@ -109,11 +120,11 @@ Defaults allow native development without credentials. Supabase is not initializ
 
 ## Deployment
 
-No cloud resources have been created or deployed.
+The project owner has configured Vercel, Render, and an unintegrated Supabase project. The existing deployment settings below remain unchanged for Phase 3. No Supabase integration or credentials are needed for OCR.
 
 ### Vercel
 
-Import `Ryandeboss/book_lens` after you publish the foundation to GitHub.
+Connect `Ryandeboss/book_lens` on main.
 
 - Root Directory: `frontend`
 - Framework: Vite
@@ -127,7 +138,7 @@ Import `Ryandeboss/book_lens` after you publish the foundation to GitHub.
 
 ### Render
 
-Create a Node web service later from the repository:
+The Node web service uses:
 
 - Root Directory: `backend`
 - Build: `npm ci --include=dev && npm run build`
@@ -140,7 +151,7 @@ The include-dev install flag ensures the TypeScript compiler is present during t
 
 ## Dependencies
 
-- Frontend: Vue (UI), Vue Router (routes), Pinia (future state).
+- Frontend: Vue (UI), Vue Router (routes), Pinia (in-memory text session), Tesseract.js 7 (browser OCR).
 - Frontend tooling: Vite and its Vue plugin (dev/build), TypeScript and vue-tsc (types), Vitest, Vue Test Utils and jsdom (component tests).
 - Backend: Express (HTTP), cors (browser origins), dotenv (local configuration), Zod (environment validation), Pino and pino-http (structured/request logs).
 - Backend tooling: TypeScript, tsx (dev restart), Vitest and Supertest (HTTP tests), required type declarations.
@@ -149,10 +160,7 @@ The include-dev install flag ensures the TypeScript compiler is present during t
 ## Planned Features
 
 - Page boundary detection and perspective correction using OpenCV.js
-- Tesseract.js OCR
-- Multi-page scanning sessions
-- OCR review/editing and `.txt` export
 - Supabase authentication/persistence and possible Storage
 - Optional constrained AI OCR correction
 
-**Next phase:** Phase 3: Add Tesseract.js OCR so a manually captured page image can be converted into text, display OCR progress, show raw extracted text in an editable review interface, and allow the user to scan another page. Phase 3 has not been implemented.
+**Next phase:** Phase 4: Add OpenCV.js image preprocessing, automatic page-boundary detection, perspective correction/cropping, and image enhancement before OCR to significantly improve recognition quality. Phase 4 has not been implemented.

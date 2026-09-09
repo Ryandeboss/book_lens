@@ -13,3 +13,5 @@ Thumbs.db
 !.vscode/settings.json
 .docker-local/
 .npm-cache/
+*.traineddata
+*.traineddata.gz
