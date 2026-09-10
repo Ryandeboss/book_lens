@@ -1,6 +1,6 @@
 # BookLens
 
-A mobile-first web application for turning printed pages into editable text. Phase 3 supports manual camera capture, English browser OCR, multi-page editing, and a combined TXT download. Sessions are in memory only.
+A mobile-first web application for turning printed pages into editable text. Phase 4 supports continuous automatic scanning, perspective correction, background English browser OCR, multi-page editing, and a combined TXT download. Sessions are in memory only.
 
 ## Current Feature Status
 
@@ -11,28 +11,28 @@ A mobile-first web application for turning printed pages into editable text. Pha
 - [x] Multi-page scan sessions
 - [x] Editable OCR review
 - [x] TXT export
-- [ ] Page boundary detection
-- [ ] Perspective correction
-- [ ] Automatic page capture
+- [x] Page boundary detection
+- [x] Perspective correction
+- [x] Automatic page capture
 - [ ] Supabase persistence
 - [ ] Authentication
 - [ ] AI OCR cleanup
 
-## Test the Camera
+## Scan a book
 
-Run `npm.cmd run dev` from the project root and open http://localhost:5173/scan on your computer. Click Start Camera and allow webcam permission. Wait for the live preview, then Capture. Retake discards the image and reuses the active camera. Use Page starts English OCR with real per-stage progress. Review/edit the text, then Add Page. Repeat with Scan Next Page; Finish opens /review. There you can edit or delete pages, preview combined text, and Download TXT. Start New Scan asks before clearing an existing document.
+Run `npm.cmd run dev` and open http://localhost:5173/scan. Start Camera, allow access, and fit one page inside the portrait guide. Hold steady until the green check confirms acceptance, then turn the page immediately. OCR runs in the background; the counters distinguish captured and processed pages. If processing falls behind, hold for a moment until capture resumes.
 
-Raw OCR is preserved separately from your edits. Exports use the edited text in page order, separated by three newline characters, without artificial page headings. Very short OCR results require explicit acknowledgement before adding. Failed OCR retains the image for Try Again or Retake.
+Pause stops automatic acceptance. Resume restarts detection; Manual Capture bypasses the stability/quality gates and refreshes the geometry, using the guide crop if no boundary is found. Manual captures still use duplicate protection and the OCR queue. Stop Camera releases the camera; accepted pages remain available in Review. Backgrounding pauses scanning and requires an explicit Resume.
 
-Accepted pages survive navigation between /scan and /review. Refreshing or closing the tab clears them; download first. Unaccepted captures/drafts are discarded on leaving /scan. Stop Camera releases the camera; navigating away also stops all tracks. Returning to scan restarts it on request.
+Done stops the camera and new captures, waits for pending OCR, then opens Review. Edit or delete pages and Download TXT. Raw OCR stays separate from edited text; export uses edited text in page order, separated by three newlines. Failed pages offer Retry while their temporary image remains available, or instructions to delete/rescan. Nearly blank OCR results are marked for review. Start New Scan asks before clearing the document.
 
-Capture uses the video frame's actual dimensions, not its displayed CSS size. A PNG Blob and object URL stay in memory only; no image is uploaded or persisted. The photograph is discarded on Add Page, Retake, or navigation. The camera intentionally remains on during scanning/review for a quick next capture, with a visible Stop Camera control.
+Sessions stay in this tab: download before refreshing or closing. Only text, status, and small fingerprints live in Pinia. Image processing and OCR run in browser workers; camera images are not uploaded to Render. Successful OCR releases the queued image. Pending and retry images have separate count and byte limits.
 
-Tesseract.js loads lazily on the first Use Page. One English worker is reused while /scan stays mounted, then terminated on leaving. Worker/engine/language resources download from Tesseract's default versioned CDN paths; language data may be cached in browser IndexedDB. This is an OCR resource cache, not saved user pages or offline app support. Initial use requires internet access and can be slower than later pages. If initialization is cancelled before the library returns its worker handle, cleanup occurs when that handle becomes available. A 3-minute timeout returns stalled OCR to a retryable error. See [Tesseract worker documentation](https://github.com/naptha/tesseract.js/blob/master/docs/api.md).
+OpenCV is loaded lazily from the application's bundled worker (~15.6 MB before transfer compression). Tesseract lazily downloads its English worker/engine/language resources from its default versioned CDN paths; language data may be cached in browser IndexedDB. Initial use requires internet access and can take longer. OpenCV requests time out after 60 seconds; OCR jobs time out after 3 minutes and can be retried. See [Tesseract worker documentation](https://github.com/naptha/tesseract.js/blob/master/docs/api.md).
 
-Camera access requires a secure context: localhost works on desktop, but an ordinary phone LAN URL such as `http://192.168.x.x:5173` generally does not. Use the project's HTTPS Vercel deployment/preview for real phone testing. See [MDN getUserMedia](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia).
+Camera access requires HTTPS or desktop localhost. A phone LAN URL such as `http://192.168.x.x:5173` generally cannot use the camera. Use the HTTPS Vercel site for phone testing. See [MDN getUserMedia](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia).
 
-On Chrome Android and Safari iPhone, manually check rear-camera selection, allow/deny permissions, portrait/landscape layout, readable still captures, Retake, OCR progress/results, editing two pages, TXT download, Stop Camera, and the camera indicator turning off after Finish. Rear-camera and resolution constraints are preferences. Keep the tab foregrounded during OCR; mobile browsers may suspend background work. Full-resolution OCR uses substantial temporary memory; one image is processed at a time and only text is retained after acceptance. Blurry, tilted, shadowed, or curved pages may need a rescan and manual corrections until preprocessing is implemented.
+See [Phase 4 verification and phone tuning checklist](docs/phase4-verification.md). Browser tests exercise real OpenCV and OCR using generated pages, but physical camera quality and speed still need testing on Chrome Android and Safari iPhone. This is flat-page perspective correction; curved book gutters, glossy pages, sparse text, and weak edge contrast remain difficult.
 
 ## Architecture
 
@@ -40,7 +40,7 @@ On Chrome Android and Safari iPhone, manually check rear-camera selection, allow
 Vue/Vite -> Node/Express API -> Supabase (future)
 ```
 
-Vue uses Composition API single-file components, Vue Router for navigation, and Pinia for the current text document. Camera capture, Tesseract OCR, and TXT export all run in the browser. Express keeps HTTP handling separate from future business logic and persistence. In Docker, Nginx serves the production frontend and proxies API requests. See [architecture details](docs/architecture.md).
+Vue uses Composition API single-file components, Vue Router for navigation, and Pinia for the current text document. Camera capture, OpenCV processing, Tesseract OCR, and TXT export all run in the browser. Express keeps HTTP handling separate from future business logic and persistence. In Docker, Nginx serves the production frontend and proxies API requests. See [architecture details](docs/architecture.md).
 
 The root is a simple command runner, not an npm workspace. Each application has its own package.json and lockfile so Vercel and Render can install independently from their configured root directories.
 
@@ -106,6 +106,7 @@ If port 80 is occupied, copy `.env.example` to `.env`, set `WEB_PORT=8080`, and 
 
 | Location      | Variable                  | Meaning                                                                                               |
 | ------------- | ------------------------- | ----------------------------------------------------------------------------------------------------- |
+| frontend/.env | VITE_SCANNER_DEBUG        | Optional `true` for local scanner metrics; disabled in production builds                              |
 | frontend/.env | VITE_API_URL              | `http://localhost:3000/api` locally; Render API URL plus `/api` on Vercel                             |
 | backend/.env  | PORT                      | Local default 3000; honor Render's supplied value                                                     |
 | backend/.env  | NODE_ENV                  | development, test, or production                                                                      |
@@ -120,7 +121,7 @@ Defaults allow native development without credentials. Supabase is not initializ
 
 ## Deployment
 
-The project owner has configured Vercel, Render, and an unintegrated Supabase project. The existing deployment settings below remain unchanged for Phase 3. No Supabase integration or credentials are needed for OCR.
+The project owner has configured Vercel, Render, and an unintegrated Supabase project. The existing deployment settings below remain unchanged for Phase 4. No Supabase integration or credentials are needed for OCR.
 
 ### Vercel
 
@@ -151,7 +152,7 @@ The include-dev install flag ensures the TypeScript compiler is present during t
 
 ## Dependencies
 
-- Frontend: Vue (UI), Vue Router (routes), Pinia (in-memory text session), Tesseract.js 7 (browser OCR).
+- Frontend: Vue (UI), Vue Router (routes), Pinia (in-memory text session), Tesseract.js 7 (browser OCR), @techstark/opencv-js 5.0.0-release.1 (upstream OpenCV browser build and types).
 - Frontend tooling: Vite and its Vue plugin (dev/build), TypeScript and vue-tsc (types), Vitest, Vue Test Utils and jsdom (component tests).
 - Backend: Express (HTTP), cors (browser origins), dotenv (local configuration), Zod (environment validation), Pino and pino-http (structured/request logs).
 - Backend tooling: TypeScript, tsx (dev restart), Vitest and Supertest (HTTP tests), required type declarations.
@@ -159,8 +160,7 @@ The include-dev install flag ensures the TypeScript compiler is present during t
 
 ## Planned Features
 
-- Page boundary detection and perspective correction using OpenCV.js
 - Supabase authentication/persistence and possible Storage
 - Optional constrained AI OCR correction
 
-**Next phase:** Phase 4: Add OpenCV.js image preprocessing, automatic page-boundary detection, perspective correction/cropping, and image enhancement before OCR to significantly improve recognition quality. Phase 4 has not been implemented.
+**Next phase:** Phase 5: Integrate Supabase Auth and PostgreSQL so users can create accounts, save completed scan sessions, reopen/edit previous scans, and keep their library. Phase 5 is not implemented.

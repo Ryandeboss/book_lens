@@ -1,31 +1,55 @@
-import { flushPromises, mount } from '@vue/test-utils';
+﻿import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import ScanView from './ScanView.vue';
 import { createPinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
+import ScanView from './ScanView.vue';
 import { useScanStore } from '../stores/scan';
+import { ocrQueueKey } from '../composables/useOcrQueue';
+import { createOcrQueue } from '../services/ocrQueue';
+import type { Detection } from '../types/scanner';
+import type { OcrResult } from '../types/Page';
 
-const ocrMocks = vi.hoisted(() => ({ recognize: vi.fn(), terminate: vi.fn() }));
-vi.mock('tesseract.js', () => ({
-  createWorker: vi.fn(async () => ({
-    recognize: ocrMocks.recognize,
-    terminate: ocrMocks.terminate,
-  })),
+const vision = vi.hoisted(() => ({
+  analyze: vi.fn(),
+  process: vi.fn(),
+  terminate: vi.fn(),
 }));
-
-const getUserMedia = vi.fn();
-const stop = vi.fn();
-const createObjectURL = vi.fn(() => 'blob:captured-page');
-const revokeObjectURL = vi.fn();
-const drawImage = vi.fn();
-let wrapper: ReturnType<typeof mount> | undefined;
-let encode: BlobCallback | undefined;
-
+vi.mock('../composables/usePageDetection', () => ({
+  usePageDetection: () => vision,
+}));
+const getUserMedia = vi.fn(),
+  stop = vi.fn(),
+  drawImage = vi.fn();
+const engine = { recognize: vi.fn(), terminate: vi.fn(async () => {}) };
+let wrapper: ReturnType<typeof mount>;
+let router: ReturnType<typeof createRouter>;
+let queue: ReturnType<typeof createOcrQueue>;
+const page = (): Detection => ({
+  corners: [
+    { x: 0.2, y: 0.1 },
+    { x: 0.8, y: 0.1 },
+    { x: 0.8, y: 0.9 },
+    { x: 0.2, y: 0.9 },
+  ],
+  aligned: true,
+  alignment: 1,
+  sharpness: 100,
+  brightness: 190,
+  signature: [0.1, -0.1],
+});
 beforeEach(async () => {
-  ocrMocks.recognize.mockResolvedValue({
-    data: { text: 'Raw page text', confidence: 90 },
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+  vision.analyze.mockResolvedValue(page());
+  vision.process.mockResolvedValue({
+    blob: new Blob(['page']),
+    fingerprint: [0.1, -0.1],
+    width: 800,
+    height: 1100,
   });
-  ocrMocks.terminate.mockResolvedValue(undefined);
+  engine.recognize.mockResolvedValue({
+    rawText: 'Recognized words',
+    confidence: 90,
+  });
   vi.stubGlobal('isSecureContext', true);
   const track = Object.assign(new EventTarget(), { readyState: 'live', stop });
   getUserMedia.mockResolvedValue({
@@ -33,18 +57,16 @@ beforeEach(async () => {
     getVideoTracks: () => [track],
   });
   vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } });
-  vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+  vi.stubGlobal(
+    'createImageBitmap',
+    vi.fn(async () => ({ close: vi.fn() })),
+  );
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
     drawImage,
   } as unknown as CanvasRenderingContext2D);
-  vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(
-    function (callback) {
-      encode = callback;
-    },
-  );
   const pinia = createPinia();
-  const router = createRouter({
+  router = createRouter({
     history: createMemoryHistory(),
     routes: [
       { path: '/scan', component: ScanView },
@@ -52,150 +74,166 @@ beforeEach(async () => {
     ],
   });
   await router.push('/scan');
-  wrapper = mount(ScanView, { global: { plugins: [pinia, router] } });
+  queue = createOcrQueue(useScanStore(pinia), engine);
+  wrapper = mount(ScanView, {
+    global: {
+      plugins: [pinia, router],
+      provide: { [ocrQueueKey as symbol]: queue },
+    },
+  });
 });
-afterEach(() => {
-  wrapper?.unmount();
+afterEach(async () => {
+  wrapper.unmount();
+  await queue.dispose();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
-  encode = undefined;
+  vi.useRealTimers();
 });
 function button(label: string) {
-  const match = wrapper!
-    .findAll('button')
-    .find((entry) => entry.text() === label);
-  if (!match) throw new Error('Missing button: ' + label);
-  return match;
+  const found = wrapper.findAll('button').find((b) => b.text() === label);
+  if (!found) throw new Error('Missing ' + label);
+  return found;
 }
-async function startReady() {
+async function ready() {
   await button('Start Camera').trigger('click');
   await flushPromises();
-  const video = wrapper!.get('video');
+  const video = wrapper.get('video');
   Object.defineProperties(video.element, {
-    videoWidth: { value: 1920, configurable: true },
-    videoHeight: { value: 1080, configurable: true },
-    readyState: { value: 2, configurable: true },
-    paused: { value: false, configurable: true },
+    videoWidth: { value: 1920 },
+    videoHeight: { value: 1080 },
+    readyState: { value: 2 },
+    paused: { value: false },
   });
   await video.trigger('playing');
+  await flushPromises();
   return video;
 }
-describe('Scan flow', () => {
-  it('waits for valid video, captures full resolution, retakes without another request, and releases images', async () => {
-    expect(wrapper!.find('video').exists()).toBe(false);
-    await button('Start Camera').trigger('click');
-    await flushPromises();
-    expect(button('Capture').attributes('disabled')).toBeDefined();
-    const video = wrapper!.get('video');
-    Object.defineProperties(video.element, {
-      videoWidth: { value: 1920 },
-      videoHeight: { value: 1080 },
-      readyState: { value: 2 },
-      paused: { value: false },
-    });
-    await video.trigger('playing');
-    expect(video.element.srcObject).toBeTruthy();
-    expect(button('Capture').attributes('disabled')).toBeUndefined();
-    await button('Capture').trigger('click');
+async function advance(ms: number) {
+  await vi.advanceTimersByTimeAsync(ms);
+  await flushPromises();
+}
+describe('continuous scan screen', () => {
+  it('automatically captures at source resolution, keeps text out of scan, and locks the held page', async () => {
+    expect(wrapper.find('video').exists()).toBe(false);
+    const video = await ready();
+    expect(vision.process).not.toHaveBeenCalled();
+    await advance(1100);
+    expect(useScanStore().pages).toHaveLength(1);
     expect(drawImage).toHaveBeenCalledWith(video.element, 0, 0, 1920, 1080);
-    encode!(new Blob(['image'], { type: 'image/png' }));
-    await flushPromises();
-    expect(wrapper!.get('img').attributes('src')).toBe('blob:captured-page');
-    expect(wrapper!.get('img').attributes('width')).toBe('1920');
-    await button('Retake').trigger('click');
-    expect(wrapper!.find('img').exists()).toBe(false);
-    expect(wrapper!.get('video').isVisible()).toBe(true);
-    expect(getUserMedia).toHaveBeenCalledTimes(1);
-    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2);
-    expect(revokeObjectURL).toHaveBeenCalledWith('blob:captured-page');
-    await button('Capture').trigger('click');
-    encode!(new Blob(['second']));
-    await flushPromises();
-    wrapper!.unmount();
-    expect(revokeObjectURL).toHaveBeenCalledTimes(2);
-    expect(stop).toHaveBeenCalledOnce();
+    expect(wrapper.text()).toContain('1 captured');
+    expect(wrapper.find('textarea').exists()).toBe(false);
+    await advance(3000);
+    expect(vision.process).toHaveBeenCalledOnce();
+    expect(wrapper.get('[data-state]').attributes('data-state')).toBe(
+      'waitingForPageChange',
+    );
   });
-  it('stops manually and ignores encoding completed after navigation', async () => {
-    await startReady();
-    await button('Capture').trigger('click');
-    wrapper!.unmount();
-    encode!(new Blob(['late']));
+  it('pauses automatic capture but manual capture refreshes geometry and uses the guide fallback', async () => {
+    await ready();
+    await button('Pause').trigger('click');
+    await advance(2000);
+    expect(vision.process).not.toHaveBeenCalled();
+    vision.analyze.mockResolvedValue({
+      ...page(),
+      corners: null,
+      aligned: false,
+    });
+    await button('Manual Capture').trigger('click');
     await flushPromises();
-    expect(createObjectURL).not.toHaveBeenCalled();
-    expect(stop).toHaveBeenCalledOnce();
+    expect(vision.process).toHaveBeenCalledWith(expect.anything(), null);
+    expect(useScanStore().pages).toHaveLength(1);
+    await button('Manual Capture').trigger('click');
+    await flushPromises();
+    expect(useScanStore().pages).toHaveLength(1);
+    expect(wrapper.text()).toContain('Duplicate page ignored');
   });
-  it('returns to start after Stop Camera', async () => {
-    await startReady();
+  it('Done stops acceptance and camera immediately, drains OCR, then opens Review', async () => {
+    let complete!: (result: OcrResult) => void;
+    engine.recognize.mockReturnValue(
+      new Promise<OcrResult>((done) => {
+        complete = done;
+      }),
+    );
+    await ready();
+    await advance(1100);
+    expect(useScanStore().pages[0]?.status).toBe('processing');
+    await button('Done').trigger('click');
+    await flushPromises();
+    expect(stop).toHaveBeenCalledOnce();
+    expect(wrapper.text()).toContain('Finishing scan');
+    expect(router.currentRoute.value.path).toBe('/scan');
+    await advance(2000);
+    expect(useScanStore().pages).toHaveLength(1);
+    complete({ rawText: 'Finished' });
+    await flushPromises();
+    expect(router.currentRoute.value.path).toBe('/review');
+    expect(engine.terminate).toHaveBeenCalledOnce();
+  });
+  it('Stop Camera and navigation terminate analysis; restart starts a fresh loop', async () => {
+    await ready();
     await button('Stop Camera').trigger('click');
     expect(stop).toHaveBeenCalledOnce();
-    expect(button('Start Camera').exists()).toBe(true);
-    expect(wrapper!.find('video').exists()).toBe(false);
+    expect(wrapper.find('video').exists()).toBe(false);
+    const calls = vision.analyze.mock.calls.length;
+    await advance(1000);
+    expect(vision.analyze).toHaveBeenCalledTimes(calls);
+    await ready();
+    await advance(1100);
+    expect(useScanStore().pages).toHaveLength(1);
+    wrapper.unmount();
+    expect(stop).toHaveBeenCalledTimes(2);
+    expect(vision.terminate).toHaveBeenCalled();
   });
-  it('shows denial and capture-encoding failures gracefully', async () => {
+  it('explains permission denial and worker failure, with an explicit Resume recovery', async () => {
     getUserMedia.mockRejectedValueOnce(new DOMException('', 'NotAllowedError'));
     await button('Start Camera').trigger('click');
     await flushPromises();
-    expect(wrapper!.get('[role="alert"]').text()).toContain(
+    expect(wrapper.get('[role="alert"]').text()).toContain(
       'permission was denied',
     );
-    await startReady();
-    await button('Capture').trigger('click');
-    encode!(null);
-    await flushPromises();
-    expect(wrapper!.get('[role="alert"]').text()).toContain(
-      'could not be captured',
+    vision.analyze.mockRejectedValueOnce(new Error('worker failed'));
+    await ready();
+    expect(wrapper.get('[data-state]').attributes('data-state')).toBe('error');
+    const calls = vision.analyze.mock.calls.length;
+    await advance(2000);
+    expect(vision.analyze).toHaveBeenCalledTimes(calls);
+    await button('Resume').trigger('click');
+    await advance(1100);
+    expect(useScanStore().pages).toHaveLength(1);
+  });
+  it('does not navigate or terminate another scanner after leaving a pending Done', async () => {
+    let complete!: (result: OcrResult) => void;
+    engine.recognize.mockReturnValue(
+      new Promise<OcrResult>((done) => {
+        complete = done;
+      }),
     );
-    expect(wrapper!.find('img').exists()).toBe(false);
+    await ready();
+    await advance(1100);
+    await button('Done').trigger('click');
+    await flushPromises();
+    const navigate = vi.spyOn(router, 'push');
+    wrapper.unmount();
+    complete({ rawText: 'Kept after navigation' });
+    await flushPromises();
+    expect(useScanStore().pages[0]?.rawText).toBe('Kept after navigation');
+    expect(navigate).not.toHaveBeenCalled();
+    expect(engine.terminate).not.toHaveBeenCalled();
   });
-  it('reads, edits and adds pages without retaining photographs or overwriting raw OCR', async () => {
-    await startReady();
-    await button('Capture').trigger('click');
-    encode!(new Blob(['image']));
-    await flushPromises();
-    await button('Use Page').trigger('click');
-    expect(wrapper!.text()).toContain('Reading page');
-    await flushPromises();
-    expect(wrapper!.get('textarea').element.value).toBe('Raw page text');
-    await wrapper!.get('textarea').setValue('Corrected page');
-    await button('Add Page').trigger('click');
-    const store = useScanStore();
-    expect(store.pages[0]?.rawText).toBe('Raw page text');
-    expect(store.pages[0]?.editedText).toBe('Corrected page');
-    expect(wrapper!.text()).toContain('Pages scanned: 1');
-    expect(wrapper!.find('img').exists()).toBe(false);
-    expect(revokeObjectURL).toHaveBeenCalledWith('blob:captured-page');
-    await button('Scan Next Page').trigger('click');
-    await flushPromises();
-    expect(wrapper!.get('video').isVisible()).toBe(true);
-    expect(getUserMedia).toHaveBeenCalledTimes(1);
-  });
-  it('requires acknowledgement for nearly blank OCR', async () => {
-    ocrMocks.recognize.mockResolvedValue({ data: { text: '', confidence: 0 } });
-    await startReady();
-    await button('Capture').trigger('click');
-    encode!(new Blob());
-    await flushPromises();
-    await button('Use Page').trigger('click');
-    await flushPromises();
-    expect(wrapper!.text()).toContain('Very little text');
-    expect(button('Add Page').attributes('disabled')).toBeDefined();
-    await wrapper!.get('input[type="checkbox"]').setValue(true);
-    await button('Add Page').trigger('click');
-    expect(useScanStore().pages.length).toBe(1);
-  });
-  it('preserves the image when OCR fails and retries it', async () => {
-    ocrMocks.recognize.mockRejectedValueOnce(new Error('network'));
-    await startReady();
-    await button('Capture').trigger('click');
-    encode!(new Blob());
-    await flushPromises();
-    await button('Use Page').trigger('click');
-    await flushPromises();
-    expect(wrapper!.get('img').attributes('src')).toBe('blob:captured-page');
-    expect(wrapper!.get('[role="alert"]').text()).toContain("couldn't read");
-    await button('Try Again').trigger('click');
-    await flushPromises();
-    expect(wrapper!.get('textarea').element.value).toBe('Raw page text');
+  it('pauses when backgrounded and requires Resume', async () => {
+    await ready();
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    document.dispatchEvent(new Event('visibilitychange'));
+    await advance(2000);
+    expect(vision.process).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain('background');
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+    document.dispatchEvent(new Event('visibilitychange'));
+    await advance(2000);
+    expect(vision.process).not.toHaveBeenCalled();
+    await button('Resume').trigger('click');
+    await advance(1100);
+    expect(useScanStore().pages).toHaveLength(1);
   });
 });

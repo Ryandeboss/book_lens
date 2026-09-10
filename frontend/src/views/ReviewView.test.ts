@@ -5,6 +5,8 @@ import { afterEach, expect, it, vi } from 'vitest';
 import ReviewView from './ReviewView.vue';
 import { useScanStore } from '../stores/scan';
 import { downloadText } from '../services/downloadText';
+import { ocrQueueKey } from '../composables/useOcrQueue';
+import { createOcrQueue } from '../services/ocrQueue';
 
 vi.mock('../services/downloadText', () => ({ downloadText: vi.fn() }));
 afterEach(() => vi.restoreAllMocks());
@@ -22,7 +24,16 @@ it('edits, exports, deletes, confirms clearing, and retains raw OCR', async () =
     ],
   });
   await router.push('/review');
-  const wrapper = mount(ReviewView, { global: { plugins: [pinia, router] } });
+  const queue = createOcrQueue(store, {
+    recognize: vi.fn(),
+    terminate: vi.fn(async () => {}),
+  });
+  const wrapper = mount(ReviewView, {
+    global: {
+      plugins: [pinia, router],
+      provide: { [ocrQueueKey as symbol]: queue },
+    },
+  });
   await wrapper.findAll('textarea')[0]!.setValue('Edited');
   expect(store.pages[0]?.rawText).toBe('raw');
   expect(store.pages[0]?.editedText).toBe('Edited');
@@ -53,4 +64,53 @@ it('edits, exports, deletes, confirms clearing, and retains raw OCR', async () =
   expect(store.pages).toEqual([]);
   expect(router.currentRoute.value.path).toBe('/scan');
   wrapper.unmount();
+});
+
+it('marks OCR failures, retries in place, and leaves other pages editable', async () => {
+  const pinia = createPinia();
+  setActivePinia(pinia);
+  const store = useScanStore();
+  const engine = {
+    recognize: vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue({ rawText: 'Recovered' }),
+    terminate: vi.fn(async () => {}),
+  };
+  const queue = createOcrQueue(store, engine);
+  queue.enqueue(new Blob(['failed']), []);
+  await queue.waitUntilIdle();
+  store.addPage({ rawText: 'Good page', editedText: 'Good page' });
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/review', component: ReviewView },
+      { path: '/scan', component: { template: '<p>Scan</p>' } },
+    ],
+  });
+  await router.push('/review');
+  const wrapper = mount(ReviewView, {
+    global: {
+      plugins: [pinia, router],
+      provide: { [ocrQueueKey as symbol]: queue },
+    },
+  });
+  expect(wrapper.text()).toContain('OCR failed');
+  expect(wrapper.findAll('textarea')).toHaveLength(1);
+  const id = store.pages[0]!.id;
+  await wrapper
+    .findAll('button')
+    .find((b) => b.text() === 'Retry')!
+    .trigger('click');
+  await flushPromises();
+  expect(store.pages[0]).toMatchObject({
+    id,
+    pageNumber: 1,
+    status: 'ready',
+    rawText: 'Recovered',
+  });
+  expect(wrapper.findAll('textarea')).toHaveLength(2);
+  expect(store.pages[1]?.editedText).toBe('Good page');
+  wrapper.unmount();
+  await queue.dispose();
 });

@@ -5,15 +5,19 @@ import AppButton from '../components/common/AppButton.vue';
 import PageTextEditor from '../components/scan/PageTextEditor.vue';
 import { useScanStore } from '../stores/scan';
 import { downloadText } from '../services/downloadText';
+import { useOcrQueue } from '../composables/useOcrQueue';
 
 const session = useScanStore();
 const router = useRouter();
+const queue = useOcrQueue();
 const exportError = ref('');
 function removePage(id: string) {
-  if (window.confirm('Delete this page from your document?'))
+  if (window.confirm('Delete this page from your document?')) {
+    queue.forget(id);
     session.removePage(id);
+  }
 }
-function startNew() {
+async function startNew() {
   if (
     session.pages.length &&
     !window.confirm(
@@ -21,10 +25,18 @@ function startNew() {
     )
   )
     return;
+  await queue.reset();
   session.clearSession();
   void router.push('/scan');
 }
 function download() {
+  if (
+    session.pages.some((p) => p.status !== 'ready') &&
+    !window.confirm(
+      'Some pages have not been read. Download available text anyway?',
+    )
+  )
+    return;
   exportError.value = '';
   try {
     downloadText(session.combinedText);
@@ -56,12 +68,38 @@ function download() {
     <p v-if="exportError" class="scan-error" role="alert">{{ exportError }}</p>
     <article v-for="page in session.pages" :key="page.id" class="document-card">
       <PageTextEditor
+        v-if="page.status === 'ready'"
         :id="`page-${page.id}`"
         :page-number="page.pageNumber"
         :model-value="page.editedText"
         :confidence="page.confidence"
         @update:model-value="session.updatePage(page.id, $event)"
       />
+      <div v-else>
+        <h2>
+          Page {{ page.pageNumber }} —
+          {{ page.status === 'error' ? 'OCR failed' : page.status }}
+        </h2>
+        <p role="status">
+          {{ page.error ?? 'This page is being read in the background.' }}
+        </p>
+        <AppButton
+          v-if="page.status === 'error' && queue.canRetry(page.id)"
+          :disabled="!queue.hasCapacity.value"
+          @click="queue.retry(page.id)"
+          >Retry</AppButton
+        >
+        <p v-else-if="page.status === 'error'">
+          The temporary image has been released. Delete this page and scan it
+          again.
+        </p>
+      </div>
+      <p
+        v-if="page.status === 'ready' && page.rawText.trim().length < 10"
+        class="scan-hint"
+      >
+        Very little text was detected. Review, edit, or delete this page.
+      </p>
       <button
         class="secondary-button"
         type="button"

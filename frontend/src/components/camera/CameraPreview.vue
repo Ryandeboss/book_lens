@@ -89,7 +89,7 @@ onBeforeUnmount(() => {
   if (video.value) video.value.srcObject = null;
   emit('ready', false);
 });
-defineExpose({ captureFrame });
+defineExpose({ captureFrame, getVideo: () => video.value });
 </script>
 <template>
   <div class="camera-preview">
@@ -112,10 +112,12 @@ defineExpose({ captureFrame });
         )
       "
     />
+    <slot />
   </div>
 </template>
 <style scoped>
 .camera-preview {
+  position: relative;
   background: #14201b;
   border-radius: 12px;
   overflow: hidden;

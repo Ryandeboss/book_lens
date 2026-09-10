@@ -35,8 +35,8 @@ Browser
 - `components/common`: reusable presentation, including AppButton. `components/camera/CameraPreview.vue` owns the video element, stream attachment, readiness, and frame capture.
 - `composables/useCamera.ts`: obtains and releases camera streams and provides reactive startup, active, and error state.
 - `composables/useOcr.ts`: lazily initializes an English Tesseract worker, reports its progress, handles recognition/retry/cancellation, and terminates on unmount.
-- `stores/scan.ts`: Pinia state for accepted text pages, raw/edited text, numbering, confidence, and combined text. No MediaStreams or photographs live in the store.
-- `components/scan/PageTextEditor.vue`: shared labeled textarea used for a draft and accepted pages.
+- `stores/scan.ts`: Pinia state for captured pages, queued/processing/ready/error status, raw/edited text, numbering, confidence, fingerprints, and combined text. No MediaStreams or photographs live in the store.
+- `components/scan/PageTextEditor.vue`: labeled textarea for ready pages in Review.
 - `services/downloadText.ts`: UTF-8 Blob download and delayed object URL cleanup.
 - `services/api.ts`: browser HTTP boundary and health-response validation. Views do not construct URLs.
 - `router`: history-mode routes. Nginx and Vercel must serve index.html on deep links so Vue can select the view.
@@ -59,57 +59,53 @@ Vercel serves the compiled frontend; Render runs the compiled backend. Their ind
 
 Vite environment values are build-time public settings. Express environment values are runtime server settings. The Docker frontend intentionally builds with `/api`; native development uses localhost:3000/api; Vercel will use the actual Render origin.
 
-## Camera capture (Phase 2)
+## Continuous scanning (Phase 4)
 
 ```text
-Phone Camera (or desktop webcam)
-     |
-     v
- useCamera: getUserMedia, state, stop tracks
-     |
-     v
- CameraPreview: MediaStream -> video.srcObject
-     |
-     | manual Capture at videoWidth x videoHeight
-     v
- Canvas -> PNG Blob -> object URL -> captured page image
+CameraPreview video (useCamera owns tracks)
+   |
+   +-> 640px analysis bitmap, at most ~6/sec
+   |       |
+   |       v
+   |   usePageDetection -> OpenCV Web Worker
+   |       | contours, normalized corners, quality, guide signature
+   |       v
+   |   AutoScanMachine: alignment + stability + page-change lock
+   |       |
+   +-------+-> full-resolution bitmap, capped at 8 MP
+               |
+               v
+        OpenCV worker: perspective warp, grayscale, contrast normalization
+               |
+        conservative recent fingerprint comparison
+               |
+        reserve numbered page; green confirmation; lock until page changes
+               |
+        App-owned OCR queue (max 3 images / 24 MiB, active job included)
+               |
+        one reusable Tesseract worker -> rawText + confidence
+               |
+        update original page ID; release image
+               |
+        Done drains queue -> Review -> edit/delete -> TXT
 ```
 
-ScanView coordinates Start, Capture, Retake, and Use Page to begin OCR. The camera starts only after a user action. Video uses muted autoplay and playsinline; capture is disabled until the video is playing with a decoded frame and valid dimensions. The entire frame is drawn at its actual resolution, without cropping or detection.
+`useAutoScan.ts` coordinates scheduling and resource ownership. The typed `AutoScanMachine` owns searching, detected, stabilizing, capturing, captured, waitingForPageChange, paused, finishing, and error states. Additional refs describe actual camera/worker lifecycle and user pause. Sampling never overlaps; full-resolution processing temporarily occupies the same CV worker. Timer cadence accounts for analysis duration and naturally slows on slower devices. Main-thread work is limited to drawing/resizing and creating transferable bitmaps; contour detection, quality measurement, warping, and PNG encoding run off the UI thread.
 
-MediaStream and Blob use shallowRef so native browser objects are not deeply proxied. Streams remain owned by useCamera; unmount and Stop Camera stop all tracks. A request counter invalidates pending permission requests, stopping any stream returned after cancellation or navigation. External track termination clears active state and displays a helpful error.
+`scannerGeometry.ts` supplies normalized guide/corner math, candidate alignment, and output dimensions. `imageProcessing.ts` owns OpenCV operations. `usePageDetection.ts` lazily creates a module worker, correlates requests, transfers bitmap ownership, and handles crashes/timeouts. The worker closes each bitmap and deletes temporary Mats, contours, transforms, and ROI objects in finally blocks. Stop, Done, and Scan unmount terminate it; generation checks discard stale results and close snapshots returned after cancellation. Camera streams keep the existing permission, late-request, track-ended, and unmount cleanup protections.
 
-CameraPreview detaches srcObject on unmount. ScanView keeps the live preview mounted while viewing the still image so Retake can reuse it, revokes object URLs on discard/unmount, and ignores canvas encoding results after stop/navigation. PNG preserves image quality for future OCR without base64 strings in reactive state. No backend or storage calls are involved in capture.
+A page-change signature is computed from the guide, while the secondary fingerprint uses the corrected page interior image. Both use mean-centered grayscale thumbnails. The machine observes turns during the green flash and queue backpressure, so a brief transition can unlock the next similarly laid-out page. Quality and anchored geometry/content stability still apply before acceptance. See `config/scanner.ts` for all primary tuning values.
 
-## OCR and document flow (Phase 3)
+`provideOcrQueue()` runs in App so navigation does not discard pending OCR. `services/ocrQueue.ts` owns temporary Blobs outside Pinia, runs one OCR job at a time, and limits retained failed images to 2 / 12 MiB. Numbers/UUIDs are assigned before OCR starts; results update by UUID rather than completion order. Retry preserves position; deleted pages ignore late results. Reset invalidates work, releases images and terminates OCR. Done stops new acceptance, drains work and releases both workers; unmounting App also disposes the queue. Ordinary navigation away from Scan stops camera/CV while accepted OCR jobs continue. Images become unreachable after successful OCR; actual heap reclamation is browser-managed. OpenCV's allocated WASM heap can remain at its high-water mark until worker termination.
 
-```text
-Captured PNG Blob
-     |
-     v
-useOcr -> Tesseract.js Web Worker (English)
-     |
-     v
-rawText + confidence -> editable draft (editedText)
-     |
-     | Add Page; release photograph
-     v
-Pinia scan store: ordered text pages
-     |
-     +--> Scan Next Page (reuse worker/camera)
-     |
-     v
-/review -> edit/delete -> combinedText -> UTF-8 TXT Blob download
-```
+Tesseract remains the existing lazy English worker with logger progress, cancellation, late-initialization cleanup, and a 3-minute watchdog. The active scanner displays counts/status instead of OCR text. Review shows failures, temporary-image Retry, sparse-text hints, raw/edited text separation, editing/deletion, and TXT export. Exports preserve edited text without inserted headings. No camera frames are uploaded. Only Tesseract resource downloads use external CDN requests; OpenCV is served with the frontend.
 
-The first Use Page dynamically imports Tesseract.js and initializes its worker. The worker is reused across pages while ScanView is mounted. Finishing or navigating away terminates it, while Pinia retains accepted text until explicit clearing or a full reload. Returning to Scan creates a worker lazily again; Tesseract's browser language cache avoids unnecessary repeat language downloads.
+## OpenCV integration decision
 
-Cancellation invalidates pending results, races library work against a cancellation promise, and terminates available workers. An initializing worker is terminated when its handle resolves. Failed recognition clears the worker so retry can recreate it. A 3-minute watchdog provides recovery from stalled downloads/worker crashes. The UI displays actual per-stage logger percentages, not simulated overall progress.
+The pinned `@techstark/opencv-js` 5.0.0-release.1 package provides the upstream OpenCV JS build and TypeScript definitions, not a document-scanner abstraction. Its runtime is used directly in a Vite module worker. The package includes WASM inside its JS asset; Vite emits a hashed worker served by Vercel or Nginx with no extra CDN/CORS or separate WASM-path configuration. This avoids maintaining a custom OpenCV toolchain for this phase. See the [distribution README](https://github.com/TechStark/opencv-js) and [OpenCV geometric transforms](https://docs.opencv.org/4.x/dd/d52/tutorial_js_geometric_transformations.html).
 
-Each ScannedPage contains a UUID, contiguous pageNumber, immutable-by-action rawText, mutable editedText, and optional actual OCR confidence. Deleting renumbers remaining pages. Combined text joins editedText in array/page-number order with three newline characters and does not insert labels or rewrite contents. TXT export uses text/plain;charset=utf-8 and releases its temporary URL after download begins.
-
-Images never leave the browser for recognition. The only OCR network requests retrieve worker/engine/language resources from the default Tesseract CDNs. No OCR, image-upload, database, or auth endpoints were added to Express.
+The tradeoff is a ~15.6 MB uncompressed lazy worker bundle. A future custom reduced-module build can reduce download size after real-device profiling. Vite warns about externalizing Node-only fs/crypto branches; the browser branch is verified in a production browser build. Modern Web Workers, WebAssembly, createImageBitmap, and worker OffscreenCanvas/PNG encoding are required; older browser support has not been established.
 
 ## Scope
 
-No page detection, image preprocessing, automatic capture, Supabase clients, authentication, persistent sessions/image storage, AI, PWA, offline app cache, or CFML/Lucee is implemented. Remaining placeholder directories are retained with .gitkeep files until their first actual feature.
+Supabase clients, authentication, persistent sessions/image storage, AI cleanup, PDF, Google Drive sharing, PWA/offline app caching, and CFML/Lucee remain unimplemented. Phase 5 is Supabase Auth/PostgreSQL for saved sessions and a real library. The Node/Render API and deployment settings are unchanged by this phase.
