@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
-import type { ScannedPage } from '../types/Page';
+import type { ScannedPage, OcrResult } from '../types/Page';
 
 export const useScanStore = defineStore('scan', () => {
   const pages = ref<ScannedPage[]>([]);
@@ -45,15 +45,15 @@ export const useScanStore = defineStore('scan', () => {
       page.error = undefined;
     }
   }
-  function completePage(
-    id: string,
-    result: { rawText: string; confidence?: number },
-  ) {
+  function completePage(id: string, result: OcrResult) {
     const page = pages.value.find((page) => page.id === id);
     if (page) {
       page.rawText = result.rawText;
       page.editedText = result.rawText;
       page.confidence = result.confidence;
+      page.ocrProvider = result.ocrProvider;
+      page.paragraphs = result.paragraphs;
+      page.detectedLanguages = result.detectedLanguages;
       page.status = 'ready';
       page.error = undefined;
     }

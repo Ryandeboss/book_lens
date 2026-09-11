@@ -3,3 +3,9 @@ dist
 .env*
 *.log
 tests
+
+**/*service-account*.json
+**/*credentials*.json
+**/*.pem
+**/*.key
+**/secrets/

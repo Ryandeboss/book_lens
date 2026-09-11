@@ -68,6 +68,9 @@ try {
   await wait("document.body.innerText.includes('Start Camera')");
   await evaluate(`window.testPage=1;window.moving=true;window.workers=[];window.stops=0;const NativeWorker=window.Worker;window.Worker=class extends NativeWorker{constructor(...args){super(...args);window.workers.push(this)}terminate(){window.stops++;return super.terminate()}};
  navigator.mediaDevices.getUserMedia=async()=>{const c=document.createElement('canvas');c.width=900;c.height=1200;const ctx=c.getContext('2d');setInterval(()=>{ctx.fillStyle='#202520';ctx.fillRect(0,0,900,1200);if(!window.testPage)return;const offset=window.moving?Math.sin(Date.now()/90)*45:0;ctx.save();ctx.translate(offset,0);if(window.testPage===2)ctx.transform(1,.055,-.075,1,45,-25);ctx.fillStyle='#fffef2';ctx.fillRect(130,120,640,960);ctx.fillStyle='#111';ctx.font='bold 30px Georgia';ctx.fillText('BOOKLENS PAGE '+window.testPage,165,210);ctx.font='26px Georgia';for(let i=0;i<19;i++){const text=window.testPage===1?'The morning light filled the room.':'A different chapter begins today.';ctx.fillText(text,165,270+i*38)}ctx.restore();},50);const stream=c.captureStream(20);window.track=stream.getVideoTracks()[0];return stream;}`);
+  await evaluate(
+    `window.ocrUploads=[];const originalFetch=window.fetch;window.fetch=async(...args)=>{const [url,options]=args;if(String(url).endsWith('/ocr')&&options?.body instanceof FormData){const capability=await originalFetch(String(url)+'/status');if(!capability.ok||(await capability.json()).googleDocumentAiConfigured!==false)throw new Error('Smoke check requires unconfigured cloud OCR; no image uploaded');const image=options.body.get('image');const info={type:image.type,bytes:image.size,pageId:options.body.get('pageId')};window.ocrUploads.push(info);const response=await originalFetch(...args);info.status=response.status;return response;}return originalFetch(...args);};`,
+  );
   await click('Start Camera');
   await wait(
     "document.querySelector('[data-state]')?.dataset.state==='stabilizing' || document.querySelector('[data-state]')?.dataset.state==='detected' || document.querySelector('[data-state]')?.dataset.state==='error'",
@@ -159,6 +162,25 @@ try {
   console.log('WORKERS', workers);
   if (workers.created !== 2 || workers.stopped !== 2)
     throw new Error('Worker reuse/cleanup mismatch');
+  const uploads = await evaluate('window.ocrUploads');
+  if (
+    !uploads.length ||
+    !uploads.every(
+      (u) =>
+        ['image/png', 'image/jpeg'].includes(u.type) &&
+        u.bytes > 0 &&
+        u.bytes <= 12 * 1024 * 1024 &&
+        u.pageId &&
+        u.status === 503,
+    )
+  )
+    throw new Error(
+      'Expected validated image upload and unconfigured cloud fallback',
+    );
+  console.log(
+    'PASS corrected image upload, backend unavailable response, real Tesseract fallback',
+    uploads,
+  );
   console.log('ALL PASS', origin);
 } catch (e) {
   console.log(await evaluate('document.body.innerText'));

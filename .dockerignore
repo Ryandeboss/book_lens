@@ -5,3 +5,9 @@
 .git
 .npm-cache
 .docker-local
+
+**/*service-account*.json
+**/*credentials*.json
+**/*.pem
+**/*.key
+**/secrets/

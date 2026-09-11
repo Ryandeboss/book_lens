@@ -1,3 +1,4 @@
+import { createHybridOcr } from '../services/hybridOcr';
 import { inject, onUnmounted, provide } from 'vue';
 import type { InjectionKey } from 'vue';
 import { useOcr } from './useOcr';
@@ -8,7 +9,7 @@ import type { OcrQueue } from '../services/ocrQueue';
 export const ocrQueueKey: InjectionKey<OcrQueue> = Symbol('ocr-queue');
 export function provideOcrQueue() {
   const engine = useOcr();
-  const queue = createOcrQueue(useScanStore(), engine);
+  const queue = createOcrQueue(useScanStore(), createHybridOcr(engine));
   provide(ocrQueueKey, queue);
   onUnmounted(() => {
     void queue.dispose();

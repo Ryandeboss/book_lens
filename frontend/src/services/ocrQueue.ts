@@ -1,22 +1,25 @@
+import { ocrConfig } from '../config/ocr';
 import { computed, ref } from 'vue';
 import { scannerConfig as config } from '../config/scanner';
 import type { OcrResult } from '../types/Page';
 import type { useScanStore } from '../stores/scan';
 
 export interface OcrEngine {
-  recognize(image: Blob): Promise<OcrResult | null>;
+  recognize(image: Blob, pageId: string): Promise<OcrResult | null>;
   terminate(): Promise<void>;
 }
 export function createOcrQueue(
   session: ReturnType<typeof useScanStore>,
   engine: OcrEngine,
+  concurrency: number = ocrConfig.concurrency,
 ) {
   const pendingCount = ref(0),
     pendingBytes = ref(0),
     retryVersion = ref(0);
   let jobs: { id: string; blob: Blob }[] = [];
   const retries = new Map<string, Blob>();
-  let running = false,
+  const maxActive = Math.max(1, Math.min(2, Math.floor(concurrency) || 1));
+  let active = 0,
     generation = 0,
     disposed = false;
   const idleWaiters: (() => void)[] = [];
@@ -36,46 +39,47 @@ export function createOcrQueue(
       retries.delete(retries.keys().next().value!);
     retryVersion.value++;
   }
-  async function pump() {
-    if (running || disposed) return;
-    running = true;
-    const current = generation;
-    while (jobs.length && current === generation && !disposed) {
+  function pump() {
+    if (disposed) return;
+    while (jobs.length && active < maxActive) {
       const job = jobs.shift()!;
-      try {
-        if (session.pages.some((p) => p.id === job.id)) {
-          session.setProcessing(job.id);
-          const result = await engine.recognize(job.blob);
-          if (current !== generation) break;
-          if (session.pages.some((p) => p.id === job.id)) {
-            if (result) session.completePage(job.id, result);
-            else {
-              session.failPage(
-                job.id,
-                'OCR failed. Retry or rescan this page.',
-              );
-              retainRetry(job.id, job.blob);
-            }
-          }
-        }
-      } catch {
+      active++;
+      void run(job, generation);
+    }
+  }
+  async function run(job: { id: string; blob: Blob }, current: number) {
+    try {
+      if (session.pages.some((p) => p.id === job.id)) {
+        session.setProcessing(job.id);
+        const result = await engine.recognize(job.blob, job.id);
         if (
           current === generation &&
           session.pages.some((p) => p.id === job.id)
         ) {
-          session.failPage(job.id, 'OCR failed. Retry or rescan this page.');
-          retainRetry(job.id, job.blob);
-        }
-      } finally {
-        if (current === generation) {
-          pendingCount.value--;
-          pendingBytes.value -= job.blob.size;
+          if (result) session.completePage(job.id, result);
+          else {
+            session.failPage(job.id, 'OCR failed. Retry or rescan this page.');
+            retainRetry(job.id, job.blob);
+          }
         }
       }
-    }
-    if (current === generation) {
-      running = false;
-      idleWaiters.splice(0).forEach((resolve) => resolve());
+    } catch {
+      if (
+        current === generation &&
+        session.pages.some((p) => p.id === job.id)
+      ) {
+        session.failPage(job.id, 'OCR failed. Retry or rescan this page.');
+        retainRetry(job.id, job.blob);
+      }
+    } finally {
+      if (current === generation) {
+        active--;
+        pendingCount.value--;
+        pendingBytes.value -= job.blob.size;
+        pump();
+        if (!pendingCount.value)
+          idleWaiters.splice(0).forEach((resolve) => resolve());
+      }
     }
   }
   function submit(id: string, blob: Blob) {
@@ -126,7 +130,7 @@ export function createOcrQueue(
     jobs = [];
     retries.clear();
     retryVersion.value++;
-    running = false;
+    active = 0;
     pendingCount.value = 0;
     pendingBytes.value = 0;
     idleWaiters.splice(0).forEach((resolve) => resolve());

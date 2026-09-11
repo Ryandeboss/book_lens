@@ -218,7 +218,14 @@ export async function preparePage(
       0,
       0,
     );
-    const blob = await canvas.convertToBlob({ type: 'image/png' });
+    let blob = await canvas.convertToBlob({
+      type: config.ocrImageType,
+      quality: config.ocrJpegQuality,
+    });
+    if (config.ocrUseSmallerPng) {
+      const png = await canvas.convertToBlob({ type: 'image/png' });
+      if (png.size < blob.size) blob = png;
+    }
     return { blob, fingerprint, ...size };
   } finally {
     owned.reverse().forEach((m) => m.delete());

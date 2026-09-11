@@ -29,6 +29,9 @@ export const scannerConfig = {
   maxRetryBytes: 12 * 1024 * 1024,
   captureMaxPixels: 8_000_000,
   correctedMaxEdge: 2800,
+  ocrImageType: 'image/jpeg',
+  ocrJpegQuality: 0.94, // Keep small text legible; dimensions unchanged from Phase 4.
+  ocrUseSmallerPng: true, // Clean synthetic/text pages sometimes compress better losslessly.
   workerTimeoutMs: 60000,
   cannyLow: 50,
   cannyHigh: 150,

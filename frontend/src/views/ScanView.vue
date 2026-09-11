@@ -1,5 +1,12 @@
 ﻿<script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
+import {
+  defineAsyncComponent,
+  computed,
+  nextTick,
+  onUnmounted,
+  ref,
+  watch,
+} from 'vue';
 import { useRouter } from 'vue-router';
 import AppButton from '../components/common/AppButton.vue';
 import CameraPreview from '../components/camera/CameraPreview.vue';
@@ -9,6 +16,10 @@ import { useAutoScan } from '../composables/useAutoScan';
 import { useOcrQueue } from '../composables/useOcrQueue';
 import { useScanStore } from '../stores/scan';
 import { scannerDebug } from '../config/scanner';
+const OcrComparison =
+  import.meta.env.DEV && scannerDebug
+    ? defineAsyncComponent(() => import('../components/scan/OcrComparison.vue'))
+    : null;
 const router = useRouter(),
   session = useScanStore(),
   queue = useOcrQueue();
@@ -73,7 +84,9 @@ watch(isActive, (value) => {
         turn to the next page. Text is read in the background.
       </p>
       <p class="scan-hint">
-        This session stays in this tab. Download before refreshing or closing.
+        Page images are sent to our server and Google for OCR, without BookLens
+        saving the images. Browser OCR is the fallback. Download your text
+        before refreshing or closing.
       </p>
       <AppButton :disabled="isStarting" @click="start">{{
         isStarting ? 'Starting camera...' : 'Start Camera'
@@ -90,6 +103,7 @@ watch(isActive, (value) => {
         >Review Document</AppButton
       >
     </template>
+    <OcrComparison v-if="scannerDebug && OcrComparison && !isActive" />
     <p v-if="error" class="scan-error" role="alert">{{ error }}</p>
     <div v-if="isActive && !finishing" class="scanner-live">
       <CameraPreview
