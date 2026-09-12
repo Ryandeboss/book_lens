@@ -141,7 +141,12 @@ describe('continuous scan screen', () => {
     });
     await button('Manual Capture').trigger('click');
     await flushPromises();
-    expect(vision.process).toHaveBeenCalledWith(expect.anything(), null, []);
+    expect(vision.process).toHaveBeenCalledWith(
+      expect.anything(),
+      null,
+      [],
+      null,
+    );
     expect(wrapper.find('.accepted-region').exists()).toBe(true);
     expect(useScanStore().pages).toHaveLength(1);
     vision.process.mockResolvedValueOnce({
@@ -253,7 +258,7 @@ it('freezes the accepted region during green feedback while OCR remains pending'
   initial.textBody = initial.corners;
   vision.analyze.mockResolvedValue(initial);
   await ready();
-  await advance(900);
+  await advance(650);
   expect(wrapper.get('[data-state]').attributes('data-state')).toBe('captured');
   const shape = wrapper.get('.accepted-region').attributes('points');
   vision.analyze.mockResolvedValue({
@@ -305,7 +310,12 @@ it('automatically scans text without page edges and shows progress before green 
   expect(vision.process).not.toHaveBeenCalled();
   await advance(560);
   expect(vision.process).toHaveBeenCalledOnce();
-  expect(vision.process).toHaveBeenCalledWith(expect.anything(), null, []);
+  expect(vision.process).toHaveBeenCalledWith(
+    expect.anything(),
+    null,
+    [],
+    d.textBody,
+  );
   expect(wrapper.get('[data-state]').attributes('data-state')).toBe('captured');
   expect(wrapper.find('.accepted-region').exists()).toBe(true);
   expect(useScanStore().pages[0]?.status).toBe('processing');

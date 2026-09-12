@@ -35,6 +35,8 @@ export interface DuplicateMatch {
 }
 export interface Detection {
   source?: 'page' | 'text';
+  captureCorners?: Quad;
+  marginInk?: number;
   corners: Quad | null;
   aligned: boolean;
   alignment: number;
@@ -45,7 +47,7 @@ export interface Detection {
   textBody?: Quad | null;
   confidence?: number;
   approximate?: boolean;
-  hint?: 'moveCloser' | 'fitPage' | 'centerOnePage';
+  hint?: 'moveCloser' | 'fitPage' | 'centerOnePage' | 'clearMargin';
 }
 export type AutoScanState =
   | 'searching'
@@ -74,6 +76,7 @@ export type VisionRequest =
       bitmap: ImageBitmap;
       corners: Quad | null;
       recent?: RecentPage[];
+      textBody?: Quad | null;
     };
 export type VisionResponse = {
   id: number;

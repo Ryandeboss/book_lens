@@ -7,16 +7,13 @@ import type {
   RecentPage,
   PageFingerprint,
 } from '../types/scanner';
-import {
-  alignmentFor,
-  guideForFrame,
-  guideCorners,
-  orderCorners,
-  outputSize,
-  polygonArea,
-} from './scannerGeometry';
+import { guideForFrame, guideCorners, outputSize } from './scannerGeometry';
 import { visualSignature, findRecentDuplicate } from './pageFingerprint';
-import { estimateTextBody, canCaptureTextBody } from './textBody';
+import {
+  estimateTextBody,
+  canCaptureTextBody,
+  textMarginInk,
+} from './textBody';
 type OpenCv = typeof CV;
 
 function signature(cv: OpenCv, gray: CV.Mat) {
@@ -50,153 +47,13 @@ export function analyzePage(cv: OpenCv, bitmap: ImageBitmap): Detection {
   };
   try {
     const src = own(cv.matFromImageData(pixels(bitmap)));
-    const gray = own(new cv.Mat()),
-      blur = own(new cv.Mat()),
-      edges = own(new cv.Mat());
+    // Text-first detection across the preview. Paper contours and the fixed
+    // portrait guide do not participate in automatic acceptance.
+    const gray = own(new cv.Mat());
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-    cv.GaussianBlur(gray, blur, new cv.Size(5, 5), 0);
-    cv.Canny(blur, edges, config.cannyLow, config.cannyHigh);
-    const contours = own(new cv.MatVector()),
-      hierarchy = own(new cv.Mat());
-    cv.findContours(
-      edges,
-      contours,
-      hierarchy,
-      cv.RETR_LIST,
-      cv.CHAIN_APPROX_SIMPLE,
-    );
-    const guide = guideForFrame(src.cols, src.rows);
-    let approximate = false,
-      wide = false;
-    const candidates: { quad: Quad; score: number }[] = [];
-    let best: Quad | null = null,
-      bestScore = 0;
-    for (let i = 0; i < contours.size(); i++) {
-      const contour = contours.get(i),
-        approx = new cv.Mat(),
-        hull = new cv.Mat();
-      try {
-        const area = cv.contourArea(contour) / (src.cols * src.rows);
-        if (area < config.minPageArea) continue;
-        cv.approxPolyDP(
-          contour,
-          approx,
-          config.contourEpsilon * cv.arcLength(contour, true),
-          true,
-        );
-        let relaxed = false;
-        if (approx.rows !== 4 || !cv.isContourConvex(approx)) {
-          cv.convexHull(contour, hull);
-          cv.approxPolyDP(
-            hull,
-            approx,
-            config.contourRelaxedEpsilon * cv.arcLength(hull, true),
-            true,
-          );
-          relaxed = true;
-        }
-        if (approx.rows !== 4 || !cv.isContourConvex(approx)) continue;
-        const p = orderCorners(
-          Array.from({ length: 4 }, (_, j) => ({
-            x: approx.data32S[j * 2]! / src.cols,
-            y: approx.data32S[j * 2 + 1]! / src.rows,
-          })),
-        );
-        const size = outputSize(p, src.cols, src.rows),
-          aspect = size.width / size.height;
-        if (aspect > config.singlePageMaxAspect) {
-          wide = true;
-          continue;
-        }
-        if (aspect < config.minAspect) continue;
-        const a = alignmentFor(p, guide);
-        const score = polygonArea(p) * (a.score + 0.2) * (relaxed ? 0.95 : 1);
-        candidates.push({ quad: p, score });
-        if (score > bestScore) {
-          best = p;
-          approximate = relaxed;
-          bestScore = score;
-        }
-      } finally {
-        hull.delete();
-        approx.delete();
-        contour.delete();
-      }
-    }
-    // Distinct, similarly ranked page candidates are ambiguous; nested contours are not.
-    const center = (q: Quad) => ({
-      x: q.reduce((n, p) => n + p.x, 0) / 4,
-      y: q.reduce((n, p) => n + p.y, 0) / 4,
-    });
-    const ambiguous =
-      best &&
-      candidates.some(
-        (c) =>
-          c.score >= bestScore * (1 - config.candidateAmbiguity) &&
-          Math.hypot(
-            center(c.quad).x - center(best!).x,
-            center(c.quad).y - center(best!).y,
-          ) > 0.18,
-      );
-    if (ambiguous) best = null;
-    // If the paper edge is incomplete/misaligned, inspect the guide for printed
-    // text instead. Use the guide crop, never invent perspective corners.
-    const boundaryAligned = best ? alignmentFor(best, guide).aligned : false;
-    const bounds = boundaryAligned ? best! : guideCorners(guide);
-    const size = outputSize(bounds, src.cols, src.rows);
-    const scale = Math.min(
-      1,
-      config.textPreviewMaxEdge / Math.max(size.width, size.height),
-    );
-    const w = Math.max(32, Math.round(size.width * scale)),
-      h = Math.max(32, Math.round(size.height * scale));
-    const from = own(
-      cv.matFromArray(
-        4,
-        1,
-        cv.CV_32FC2,
-        bounds.flatMap((p) => [p.x * src.cols, p.y * src.rows]),
-      ),
-    );
-    const to = own(
-      cv.matFromArray(4, 1, cv.CV_32FC2, [
-        0,
-        0,
-        w - 1,
-        0,
-        w - 1,
-        h - 1,
-        0,
-        h - 1,
-      ]),
-    );
-    const transform = own(cv.getPerspectiveTransform(from, to)),
-      inverse = own(cv.getPerspectiveTransform(to, from));
-    const page = own(new cv.Mat());
-    cv.warpPerspective(
-      gray,
-      page,
-      transform,
-      new cv.Size(w, h),
-      cv.INTER_LINEAR,
-      cv.BORDER_REPLICATE,
-    );
-    const roi = own(
-      page.roi(
-        new cv.Rect(
-          Math.floor(w * 0.03),
-          Math.floor(h * 0.03),
-          Math.floor(w * 0.94),
-          Math.floor(h * 0.94),
-        ),
-      ),
-    );
-    const lap = own(new cv.Mat()),
-      mean = own(new cv.Mat()),
-      deviation = own(new cv.Mat());
-    cv.Laplacian(roi, lap, cv.CV_64F);
-    cv.meanStdDev(lap, mean, deviation);
-    const sharpness = deviation.data64F[0]! ** 2;
+    const w = gray.cols,
+      h = gray.rows;
+    const page = gray;
     const binary = own(new cv.Mat()),
       joined = own(new cv.Mat());
     cv.adaptiveThreshold(
@@ -221,14 +78,20 @@ export function analyzePage(cv: OpenCv, bitmap: ImageBitmap): Detection {
       joined,
       lines,
       lineHierarchy,
-      cv.RETR_EXTERNAL,
+      cv.RETR_LIST,
       cv.CHAIN_APPROX_SIMPLE,
     );
+    // Exclude enclosing paper/background contours from the whitespace test,
+    // while retaining text and local illustrations/marks. Otherwise a tilted
+    // paper edge crossing the axis-aligned text bounds looks like printed ink.
+    const marginMask = own(cv.Mat.zeros(h, w, cv.CV_8UC1));
     const boxes = [];
     for (let i = 0; i < lines.size(); i++) {
       const line = lines.get(i);
       try {
         const r = cv.boundingRect(line);
+        if (!(r.width > w * 0.4 && r.height > h * 0.4))
+          cv.drawContours(marginMask, lines, i, new cv.Scalar(255), cv.FILLED);
         boxes.push({
           x: r.x / w,
           y: r.y / h,
@@ -240,62 +103,44 @@ export function analyzePage(cv: OpenCv, bitmap: ImageBitmap): Detection {
       }
     }
     const body = estimateTextBody(boxes);
+    const marginInk = body ? textMarginInk(marginMask.data, w, h, body) : 1;
     const textCapture =
-      !boundaryAligned &&
-      !ambiguous &&
-      !wide &&
-      canCaptureTextBody(boxes, body);
-    const matrix = inverse.data64F;
-    const project = (x: number, y: number) => {
-      const X = x * (w - 1),
-        Y = y * (h - 1),
-        z = matrix[6]! * X + matrix[7]! * Y + matrix[8]!;
-      return {
-        x: (matrix[0]! * X + matrix[1]! * Y + matrix[2]!) / z / src.cols,
-        y: (matrix[3]! * X + matrix[4]! * Y + matrix[5]!) / z / src.rows,
-      };
-    };
-    const textBody: Quad | null = body
-      ? [
-          project(body.x, body.y),
-          project(body.x + body.width, body.y),
-          project(body.x + body.width, body.y + body.height),
-          project(body.x, body.y + body.height),
-        ]
-      : null;
-    const guideRoi = own(
+      canCaptureTextBody(boxes, body) && marginInk <= config.textMarginMaxInk;
+    const textBody: Quad | null = body ? guideCorners(body) : null;
+    const qualityBounds = body ?? { x: 0.05, y: 0.05, width: 0.9, height: 0.9 };
+    const x = Math.max(0, Math.floor(qualityBounds.x * w)),
+      y = Math.max(0, Math.floor(qualityBounds.y * h));
+    const roi = own(
       gray.roi(
         new cv.Rect(
-          Math.floor(guide.x * src.cols),
-          Math.floor(guide.y * src.rows),
-          Math.max(1, Math.floor(guide.width * src.cols)),
-          Math.max(1, Math.floor(guide.height * src.rows)),
+          x,
+          y,
+          Math.min(w - x, Math.max(1, Math.floor(qualityBounds.width * w))),
+          Math.min(h - y, Math.max(1, Math.floor(qualityBounds.height * h))),
         ),
       ),
     );
-    const alignment = best
-      ? alignmentFor(best, guide)
-      : { aligned: false, score: 0 };
+    const lap = own(new cv.Mat()),
+      mean = own(new cv.Mat()),
+      deviation = own(new cv.Mat());
+    cv.Laplacian(roi, lap, cv.CV_64F);
+    cv.meanStdDev(lap, mean, deviation);
     return {
-      source: textCapture ? 'text' : 'page',
-      corners: textCapture ? null : best,
-      aligned: alignment.aligned || textCapture,
-      alignment: alignment.score,
-      sharpness,
-      brightness: cv.mean(roi)[0]!,
-      signature: signature(cv, guideRoi).gray,
-      content: boundaryAligned || textCapture ? signature(cv, page) : undefined,
+      source: 'text',
+      corners: null,
       textBody,
-      approximate,
-      confidence: alignment.score,
-      hint:
-        ambiguous || (!best && wide)
-          ? 'centerOnePage'
-          : best &&
-              polygonArea(best) <
-                guide.width * guide.height * config.minGuideCoverage
-            ? 'moveCloser'
-            : 'fitPage',
+      // Keep all visible text, headings and footnotes in the captured photograph.
+      // The rectangle is the quality/feedback target, not a destructive text crop.
+      captureCorners: guideCorners({ x: 0, y: 0, width: 1, height: 1 }),
+      aligned: textCapture,
+      alignment: textCapture ? 1 : 0,
+      marginInk,
+      sharpness: deviation.data64F[0]! ** 2,
+      brightness: cv.mean(roi)[0]!,
+      signature: signature(cv, gray).gray,
+      content: body ? signature(cv, roi) : undefined,
+      confidence: textCapture ? 1 : 0,
+      hint: 'clearMargin',
     };
   } finally {
     owned.reverse().forEach((m) => m.delete());
@@ -306,6 +151,7 @@ export async function preparePage(
   bitmap: ImageBitmap,
   corners: Quad | null,
   recent: RecentPage[] = [],
+  textBody: Quad | null = null,
 ): Promise<ProcessedImage> {
   const owned: { delete(): void }[] = [];
   const own = <T extends { delete(): void }>(value: T): T => {
@@ -350,7 +196,34 @@ export async function preparePage(
       cv.BORDER_REPLICATE,
     );
     cv.cvtColor(corrected, gray, cv.COLOR_RGBA2GRAY);
-    const visualFingerprint: PageFingerprint = signature(cv, gray);
+    let fingerprintImage = gray;
+    if (textBody) {
+      const m = transform.data64F;
+      const mapped = textBody.map((p) => {
+        const x = p.x * src.cols,
+          y = p.y * src.rows,
+          z = m[6]! * x + m[7]! * y + m[8]!;
+        return {
+          x: (m[0]! * x + m[1]! * y + m[2]!) / z,
+          y: (m[3]! * x + m[4]! * y + m[5]!) / z,
+        };
+      });
+      const left = Math.max(0, Math.floor(Math.min(...mapped.map((p) => p.x)))),
+        top = Math.max(0, Math.floor(Math.min(...mapped.map((p) => p.y))));
+      const right = Math.min(
+          gray.cols,
+          Math.ceil(Math.max(...mapped.map((p) => p.x))),
+        ),
+        bottom = Math.min(
+          gray.rows,
+          Math.ceil(Math.max(...mapped.map((p) => p.y))),
+        );
+      if (right - left > 8 && bottom - top > 8)
+        fingerprintImage = own(
+          gray.roi(new cv.Rect(left, top, right - left, bottom - top)),
+        );
+    }
+    const visualFingerprint: PageFingerprint = signature(cv, fingerprintImage);
     if (config.orbEnabled && typeof cv.ORB === 'function') {
       try {
         const featureGray = own(new cv.Mat()),
@@ -360,14 +233,15 @@ export async function preparePage(
         const orb = own(new cv.ORB());
         const scale = Math.min(
           1,
-          config.orbMaxEdge / Math.max(gray.cols, gray.rows),
+          config.orbMaxEdge /
+            Math.max(fingerprintImage.cols, fingerprintImage.rows),
         );
         cv.resize(
-          gray,
+          fingerprintImage,
           featureGray,
           new cv.Size(
-            Math.round(gray.cols * scale),
-            Math.round(gray.rows * scale),
+            Math.round(fingerprintImage.cols * scale),
+            Math.round(fingerprintImage.rows * scale),
           ),
           0,
           0,

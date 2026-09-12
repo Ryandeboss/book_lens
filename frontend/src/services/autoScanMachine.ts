@@ -10,7 +10,7 @@ import type {
 
 export class AutoScanMachine {
   state: AutoScanState = 'searching';
-  message = 'Position page inside frame';
+  message = 'Point the camera at a block of text';
   changeScore = 0;
   stableProgress = 0;
   private bodyAnchor: Quad | null = null;
@@ -19,6 +19,7 @@ export class AutoScanMachine {
   private duplicateAt = -Infinity;
   duplicateNotifications = 0;
   private anchor: Quad | null = null;
+  private previousGeometry: Quad | null = null;
   private stableSignature: number[] = [];
   private stableSince = 0;
   private stableSamples = 0;
@@ -29,6 +30,7 @@ export class AutoScanMachine {
 
   resetStability() {
     this.anchor = null;
+    this.previousGeometry = null;
     this.stableSamples = 0;
     this.stableProgress = 0;
   }
@@ -137,16 +139,7 @@ export class AutoScanMachine {
       this.message =
         d.hint === 'centerOnePage'
           ? 'Center one page in the frame'
-          : 'Position page inside frame';
-      this.resetStability();
-      return false;
-    }
-    if (!d.aligned) {
-      this.state = 'detected';
-      this.message =
-        d.hint === 'moveCloser'
-          ? 'Move closer to the page'
-          : 'Fit the page inside the frame';
+          : 'Point the camera at a block of text';
       this.resetStability();
       return false;
     }
@@ -162,9 +155,34 @@ export class AutoScanMachine {
       this.resetStability();
       return false;
     }
+    if (!d.aligned) {
+      this.state = 'detected';
+      this.message =
+        d.hint === 'moveCloser'
+          ? 'Move closer to the page'
+          : d.hint === 'clearMargin'
+            ? 'Leave a clear margin around the text'
+            : 'Fit the page inside the frame';
+      this.resetStability();
+      return false;
+    }
+    const center = (q: Quad) => ({
+      x: q.reduce((n, p) => n + p.x, 0) / 4,
+      y: q.reduce((n, p) => n + p.y, 0) / 4,
+    });
+    const previous = this.previousGeometry;
+    const moving =
+      d.source === 'text' &&
+      previous &&
+      Math.hypot(
+        center(geometry).x - center(previous).x,
+        center(geometry).y - center(previous).y,
+      ) > config.textCenterMovement;
+    this.previousGeometry = geometry;
     this.state = 'stabilizing';
     this.message = 'Hold steady - scanning automatically...';
     if (
+      moving ||
       !this.anchor ||
       cornerDistance(geometry, this.anchor) >
         (d.source === 'text'
@@ -177,10 +195,11 @@ export class AutoScanMachine {
         this.bodyAnchor &&
         cornerDistance(d.textBody, this.bodyAnchor) >
           config.textBodyMovement) ||
-      signatureDifference(
-        d.content?.gray ?? d.signature,
-        this.stableSignature,
-      ) > config.stableVisualDifference
+      (d.source !== 'text' &&
+        signatureDifference(
+          d.content?.gray ?? d.signature,
+          this.stableSignature,
+        ) > config.stableVisualDifference)
     ) {
       this.anchor = geometry;
       this.bodyAnchor = d.textBody ?? null;

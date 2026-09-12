@@ -1,5 +1,15 @@
 # Scanner recognition and duplicate prevention
 
+## Current behavior: text rectangle, margin, focus, then photo
+
+The automatic decision now uses the text rectangle alone, across the whole preview. It measures ink in four padded margin bands (maximum 8%) and focus/brightness inside the block (minimum Laplacian variance 35 and brightness 90/255). Three valid samples over 450 ms trigger the photograph; no paper outline, paper aspect, or portrait-guide fit is required. Nested contours ensure a paper edge cannot hide the text inside it; enclosing paper/background contours are excluded from the margin mask. Consecutive-frame text-center movement must stay within 0.015 normalized units. The fixed guide is removed from the overlay.
+
+The full photo is retained for OCR, including visible headings/footnotes. Only duplicate fingerprints/ORB features use the detected text region. The existing queue, Google primary, browser fallback, immediate green feedback, and image cleanup remain. Only one intended page should be in the photo; multiple pages are not automatically separated. A sparse single heading or illustration lacking a clear multi-line block may need Manual Capture.
+
+New verification covers actual margin-band ink, focus/light gating, and real OpenCV detection of normal, borderless, shifted, tilted, dim-but-readable, gutter, blank, dark, and blurred fixtures. The fixture also rejects a repeated photo and accepts different text with the same layout. The earlier sections below describe previous implementations and their historical thresholds.
+
+Validation for the current text-first flow: **104 tests passed** (81 frontend / 23 backend), plus lint, typecheck, frontend/backend builds, formatting, Docker/Nginx, real OpenCV quality fixtures, and complete automatic scan-to-Review browser runs with and without visible borders. These use synthetic camera pages; physical phone verification remains required.
+
 ## Automatic-capture follow-up
 
 The original implementation could stay blocked without four detectable paper corners, and it discarded text-body detection in that case. Automatic scanning now accepts a stable, credible text block when the paper border is missing or does not align. It requires at least three printed rows, a 25%-wide/12%-tall region, and clear crop margins; blank or clipped text and ambiguous spreads do not qualify. Keep the complete page text inside the guide: this mode captures the guide, rather than cropping to only the main paragraph.

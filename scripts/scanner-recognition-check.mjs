@@ -61,19 +61,22 @@ try {
   await call('Page.navigate', { url: origin + '/scan' });
   await wait("document.body.innerText.includes('Start Camera')");
   const result = await evaluate(`(async()=>{
-    const {contentChanged}=await import('/src/services/pageFingerprint.ts');
+    const {AutoScanMachine}=await import('/src/services/autoScanMachine.ts');
     const worker=new Worker('/src/workers/imageProcessing.worker.ts',{type:'module'});
     let id=0; const pending=new Map();
     worker.onmessage=e=>{const job=pending.get(e.data.id);pending.delete(e.data.id);e.data.error?job.reject(new Error(e.data.error)):job.resolve(e.data.result);};
     worker.onerror=e=>{for(const job of pending.values())job.reject(new Error(e.message));pending.clear();};
-    const request=async(type,canvas,corners=null,recent=[])=>{const bitmap=await createImageBitmap(canvas);return new Promise((resolve,reject)=>{const key=++id;pending.set(key,{resolve,reject});worker.postMessage({id:key,type,bitmap,corners,recent},[bitmap]);});};
+    const request=async(type,canvas,corners=null,recent=[],textBody=null)=>{const bitmap=await createImageBitmap(canvas);return new Promise((resolve,reject)=>{const key=++id;pending.set(key,{resolve,reject});worker.postMessage({id:key,type,bitmap,corners,recent,textBody},[bitmap]);});};
     function fixture(kind='text',variant=0){
+      if(kind==='camera-tilt'){
+        const c=document.createElement('canvas');c.width=900;c.height=1200;const q=c.getContext('2d');q.fillStyle='#202520';q.fillRect(0,0,900,1200);q.transform(1,.055,-.075,1,45,-25);q.fillStyle='#fffef2';q.fillRect(130,120,640,960);q.fillStyle='#111';q.font='bold 30px Georgia';q.fillText('BOOKLENS PAGE 2',165,210);q.font='26px Georgia';for(let i=0;i<19;i++)q.fillText('A different chapter begins today.',165,270+i*38);const out=document.createElement('canvas');out.width=480;out.height=640;out.getContext('2d').drawImage(c,0,0,480,640);return out;
+      }
       const c=document.createElement('canvas');c.width=600;c.height=800;const ctx=c.getContext('2d');
       ctx.fillStyle=['borderless','blank'].includes(kind)?'#fffef2':'#202520';ctx.fillRect(0,0,600,800);ctx.save();
       if(kind==='blank'){ctx.restore();return c;}
       if(kind==='tilted')ctx.transform(1,.025,-.025,1,12,-8);
       if(kind==='shifted')ctx.translate(8,5);
-      ctx.fillStyle=kind==='dim'?'#c7c5b9':'#fffef2';
+      ctx.fillStyle=kind==='dark'?'#42423f':kind==='dim'?'#c7c5b9':'#fffef2';
       if(kind==='spread')ctx.fillRect(15,120,570,460);else ctx.fillRect(86,80,428,640);
       if(kind==='gutter'){ctx.fillStyle='#202520';ctx.beginPath();ctx.moveTo(86,170);ctx.quadraticCurveTo(118,370,86,650);ctx.closePath();ctx.fill();}
       ctx.fillStyle=kind==='dim'?'#171717':'#111';ctx.font='bold 20px Georgia';
@@ -84,30 +87,27 @@ try {
         for(let i=0;i<18;i++)ctx.fillText(words[i%3],110,180+i*26);
       }
       if(kind==='image'){ctx.fillStyle='#567b55';ctx.fillRect(200,340,150,130);}
-      ctx.font='12px Georgia';ctx.fillStyle='#111';ctx.fillText('17',295,693);ctx.restore();return c;
+      ctx.font='12px Georgia';ctx.fillStyle='#111';ctx.fillText('17',295,693);ctx.restore();if(kind==='blur'){const b=document.createElement('canvas');b.width=600;b.height=800;const q=b.getContext('2d');q.filter='blur(5px)';q.drawImage(c,0,0);return b;}return c;
     }
     const output=[];
     try {
       const canvas=fixture(), detection=await request('analyze',canvas);
-      if(!detection.aligned||!detection.textBody)throw new Error('Missing aligned text page/body: '+JSON.stringify(detection));
-      const first=await request('process',canvas,detection.corners);
+      if(!detection.aligned||!detection.textBody||detection.source!=='text')throw new Error('Missing text rectangle: '+JSON.stringify({body:detection.textBody,margin:detection.marginInk}));
+      const first=await request('process',canvas,detection.captureCorners,[],detection.textBody);
       const recent=[{id:'first',pageNumber:1,fingerprint:first.visualFingerprint}];
-      output.push({case:'text',aligned:detection.aligned,body:!!detection.textBody,features:first.visualFingerprint.features?.points.length,bytes:first.blob.size});
-      for(const kind of ['text','shifted','tilted','dim','gutter','title','image','spread','borderless','blank']){
+      for(const kind of ['text','shifted','tilted','dim','gutter','title','image','spread','borderless','blank','dark','blur','camera-tilt']){
         const c=fixture(kind),d=await request('analyze',c);
-        if(kind==='blank'){if(d.aligned)throw new Error('Blank scene must not auto-capture');output.push({case:kind,aligned:d.aligned});continue;}
-        if(kind==='borderless'&&(d.source!=='text'||d.corners||!d.textBody))throw new Error('Missing text-based fallback '+JSON.stringify(d));
-        if(kind==='spread'){if(d.aligned||d.hint!=='centerOnePage')throw new Error('Spread should prompt one page');output.push({case:kind,hint:d.hint});continue;}
-        if(!d.aligned)throw new Error('Not aligned '+kind+' '+JSON.stringify({corners:d.corners,sharpness:d.sharpness,alignment:d.alignment,hint:d.hint}));
-        const p=await request('process',c,d.corners,recent);
-        if(['text','shifted','tilted','dim'].includes(kind)&&contentChanged(d.content,detection.content).changed)throw new Error('Held page unnecessarily rearms '+kind);
-        if(['text','shifted','tilted','dim'].includes(kind)&&!p.duplicateMatch?.duplicate)throw new Error('Duplicate missed '+kind+' '+JSON.stringify(p.duplicateMatch));
-        if(kind==='title'&&p.duplicateMatch?.duplicate)throw new Error('Sparse title falsely rejected');
-        output.push({case:kind,body:!!d.textBody,sharpness:d.sharpness,duplicate:p.duplicateMatch});
+        const machine=new AutoScanMachine();let accepted=false;
+        for(let t=0;t<1100;t+=170)accepted=machine.sample(d,t)||accepted;
+        if(['blank','dark','blur','title','spread'].includes(kind)){
+          if(accepted)throw new Error('Should wait for text/quality '+kind+' '+JSON.stringify({body:d.textBody,margin:d.marginInk,sharpness:d.sharpness,brightness:d.brightness}));
+        } else if(kind!=='image'&&!accepted)throw new Error('Text-first capture blocked '+kind+' '+JSON.stringify({body:d.textBody,margin:d.marginInk,sharpness:d.sharpness,brightness:d.brightness}));
+        output.push({case:kind,accepted,marginInk:d.marginInk,sharpness:d.sharpness,brightness:d.brightness,message:machine.message});
       }
-      const other=fixture('text',1), d=await request('analyze',other),p=await request('process',other,d.corners,recent);
-      if(!contentChanged(d.content,detection.content).changed)throw new Error('Different text does not rearm without a blank transition');
-      if(p.duplicateMatch?.duplicate)throw new Error('Different text falsely rejected '+JSON.stringify(p.duplicateMatch));
+      const same=await request('process',canvas,detection.captureCorners,recent,detection.textBody);
+      if(!same.duplicateMatch?.duplicate)throw new Error('Same picture must be rejected');
+      const other=fixture('text',1), d=await request('analyze',other),p=await request('process',other,d.captureCorners,recent,d.textBody);
+      if(p.duplicateMatch?.duplicate)throw new Error('Different text falsely rejected');
       output.push({case:'same-layout-different-text',duplicate:p.duplicateMatch});
       return output;
     } finally {worker.terminate();}

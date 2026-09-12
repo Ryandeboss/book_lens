@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, useId } from 'vue';
-import { guideForFrame } from '../../services/scannerGeometry';
 import type { AutoScanState, Quad } from '../../types/scanner';
 const props = defineProps<{
   width: number;
@@ -26,7 +25,6 @@ const regionBounds = computed(() => {
     height: Math.max(...ys) - Math.min(...ys),
   };
 });
-const guide = computed(() => guideForFrame(props.width, props.height));
 const asPoints = (quad?: Quad | null) =>
   quad?.map((p) => `${p.x * props.width},${p.y * props.height}`).join(' ');
 const points = computed(() => asPoints(props.corners));
@@ -54,12 +52,6 @@ const center = computed(() => {
         <polygon :points="bodyPoints || points" />
       </clipPath>
     </defs>
-    <rect
-      :x="guide.x * width"
-      :y="guide.y * height"
-      :width="guide.width * width"
-      :height="guide.height * height"
-    />
     <polygon v-if="points" class="page-boundary" :points="points" />
     <polygon v-if="bodyPoints" class="text-body" :points="bodyPoints" />
     <g
@@ -159,13 +151,13 @@ rect {
   stroke: none;
 }
 .scan-sweep {
-  stroke: #b5edff;
+  stroke: #188fb9;
   stroke-width: 3;
   vector-effect: non-scaling-stroke;
   animation: scan-sweep 1.1s ease-in-out infinite;
 }
 .hold-progress {
-  stroke: #87ddff;
+  stroke: #188fb9;
   stroke-width: 4;
   transition: stroke-dasharray 170ms linear;
 }

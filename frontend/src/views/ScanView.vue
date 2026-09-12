@@ -81,7 +81,7 @@ watch(isActive, (value) => {
       <p class="eyebrow">01 / SCAN</p>
       <h1>Turn pages. Keep the words.</h1>
       <p>
-        Keep one page's text inside the guide and hold steady. Capture happens
+        Show one page with a clear margin around its text. Capture happens
         automatically. After the green check, turn to the next page. Text is
         read in the background.
       </p>
@@ -143,7 +143,7 @@ watch(isActive, (value) => {
         v-if="machine.state === 'searching' || machine.state === 'detected'"
         class="scan-hint"
       >
-        Keep one page's text inside the guide. Capture is automatic.
+        Show one page with clear space around its text. Capture is automatic.
       </p>
       <p class="counts">
         {{ session.pages.length }} captured · {{ processed }} processed<span
@@ -190,6 +190,7 @@ watch(isActive, (value) => {
             {
               state: machine.state,
               detectionSource: detection?.source,
+              marginInk: detection?.marginInk,
               corners: detection?.corners,
               alignment: detection?.alignment,
               textBody: detection?.textBody,

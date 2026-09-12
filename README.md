@@ -23,13 +23,11 @@ A mobile-first web application for turning printed pages into editable text. Boo
 
 ## Scan a book
 
-Run `npm.cmd run dev` and open http://localhost:5173/scan. Start Camera, allow access, and fit one page inside the portrait guide. Hold steady until the green check confirms acceptance, then turn the page immediately. OCR runs in the background; the counters distinguish captured and processed pages. If processing falls behind, hold for a moment until capture resumes.
+Run `npm.cmd run dev` and open http://localhost:5173/scan. Start Camera, allow access, and show one page with blank space around its printed text. BookLens finds a text rectangle across the preview, checks its surrounding margin, then waits for readable focus and lighting. No paper outline or alignment with a fixed portrait guide is required. A short stable hold triggers the picture automatically; the detected text flashes green and you can turn the page immediately.
 
-Automatic capture can also use a clear block of text when the paper border is not visible. Keep all of the page's text inside the guide. A moving scan line and progress outline show the hold before capture; green means the image is accepted and you can turn the page while OCR continues.
+The sweep/progress display reflects capture readiness, not completion of Google OCR. The complete photograph is sent to background OCR so headings and footnotes outside the main text rectangle remain available. Keep only the intended page in view. Holding the same page does not scan it twice. Recent-page matching uses the detected text area so blank paper/background do not dominate duplicate decisions.
 
-The strong outline follows the detected page; a thinner outline estimates its main printed-text area. The accepted region flashes green with a checkmark. Keeping the same page visible does not scan it twice; returning to one of the last eight accepted pages shows an amber **Already scanned** message when the visual evidence is strong. Center one page if an open spread is ambiguous.
-
-Pause stops automatic acceptance. Resume restarts detection; Manual Capture bypasses the stability/quality gates and refreshes the geometry, using the guide crop if no boundary is found. Manual captures still use duplicate protection and the OCR queue. Stop Camera releases the camera; accepted pages remain available in Review. Backgrounding pauses scanning and requires an explicit Resume.
+Pause stops automatic acceptance. Resume restarts detection; Manual Capture bypasses the stability/quality gates and refreshes detection before photographing the visible preview. Manual captures still use duplicate protection and the OCR queue. Stop Camera releases the camera; accepted pages remain available in Review. Backgrounding pauses scanning and requires an explicit Resume.
 
 Done stops the camera and new captures, waits for pending OCR, then opens Review. Edit or delete pages and Download TXT. Raw OCR stays separate from edited text; export uses edited text in page order, separated by three newlines. Failed pages offer Retry while their temporary image remains available, or instructions to delete/rescan. Nearly blank OCR results are marked for review. Start New Scan asks before clearing the document.
 

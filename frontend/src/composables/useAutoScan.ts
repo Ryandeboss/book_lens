@@ -101,7 +101,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
       }
       const result = await vision.process(
         await snapshot(current),
-        detection.value?.corners ?? null,
+        detection.value?.captureCorners ?? detection.value?.corners ?? null,
         session.pages.slice(-config.recentFingerprints).flatMap((p) =>
           p.visualFingerprint
             ? [
@@ -113,6 +113,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
               ]
             : [],
         ),
+        detection.value?.textBody ?? null,
       );
       if (current !== generation || disposed) return;
       duplicateMatch.value = result.duplicateMatch ?? null;
@@ -139,9 +140,11 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
       }
       if (!finishing.value) {
         acceptedRegion.value = {
-          corners:
-            detection.value?.corners ??
-            guideCorners(guideForFrame(width.value, height.value)),
+          corners: detection.value?.textBody
+            ? null
+            : (detection.value?.captureCorners ??
+              detection.value?.corners ??
+              guideCorners(guideForFrame(width.value, height.value))),
           textBody: detection.value?.textBody ?? null,
         };
         machine.accepted(

@@ -9,13 +9,13 @@ export const scannerConfig = {
   edgeMargin: 0.012, // Reject clipped corners.
   alignmentTolerance: 0.16, // Relative to guide dimensions.
   minGuideCoverage: 0.58,
-  stabilityMs: 750,
+  stabilityMs: 450,
   stabilityMinSamples: 3,
   maxSampleGapMs: 1500,
   cornerMovement: 0.025, // Distance in normalized frame coordinates, from stability anchor.
   stableVisualDifference: 0.045,
   minSharpness: 35, // Variance of Laplacian in the page interior at analysis size.
-  minBrightness: 45, // 0..255.
+  minBrightness: 90, // 0..255.
   pageChangeDifference: 0.1,
   pageChangeSamples: 2,
   duplicateDifference: 0.009, // Very conservative normalized content fingerprint distance.
@@ -50,9 +50,12 @@ export const scannerConfig = {
   textCaptureMinWidth: 0.25,
   textCaptureMinHeight: 0.12,
   textCaptureMargin: 0.025,
+  textClearMargin: 0.015,
+  textMarginMaxInk: 0.08,
   textBodyMinArea: 0.008, // Sparse headings remain eligible; body is optional.
   textBodyMargin: 0.015,
   textBodyMovement: 0.04,
+  textCenterMovement: 0.015,
   pageAreaMovement: 0.1,
   pageChangeGray: 0.015,
   pageChangeEdges: 0.015,

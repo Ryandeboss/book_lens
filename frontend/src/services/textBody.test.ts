@@ -1,5 +1,9 @@
 import { expect, it } from 'vitest';
-import { estimateTextBody, canCaptureTextBody } from './textBody';
+import {
+  estimateTextBody,
+  canCaptureTextBody,
+  textMarginInk,
+} from './textBody';
 it('groups the main paragraph without an isolated page number or a large illustration', () => {
   const lines = Array.from({ length: 8 }, (_, i) => ({
     x: 0.15,
@@ -44,4 +48,14 @@ it('permits a clear multi-line text block without page edges but rejects clipped
       estimateTextBody(lines),
     ),
   ).toBe(false);
+});
+
+it('measures actual clear whitespace on all four sides instead of assuming a padded box is clear', () => {
+  const pixels = new Uint8Array(100 * 100),
+    body = { x: 0.2, y: 0.2, width: 0.6, height: 0.6 };
+  expect(textMarginInk(pixels, 100, 100, body)).toBe(0);
+  for (let x = 20; x < 80; x++)
+    for (let y = 20; y < 23; y++) pixels[y * 100 + x] = 255;
+  expect(textMarginInk(pixels, 100, 100, body)).toBeGreaterThan(0.9);
+  expect(textMarginInk(pixels, 100, 100, { ...body, x: 0 })).toBe(1);
 });

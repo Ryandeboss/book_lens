@@ -33,6 +33,7 @@ export function usePageDetection() {
     bitmap: ImageBitmap,
     corners: Quad | null = null,
     recent: RecentPage[] = [],
+    textBody: Quad | null = null,
   ): Promise<Detection | ProcessedImage> {
     if (!worker) {
       try {
@@ -63,7 +64,9 @@ export function usePageDetection() {
       );
       pending.set(id, { resolve, reject, timer });
       try {
-        worker!.postMessage({ id, type, bitmap, corners, recent }, [bitmap]);
+        worker!.postMessage({ id, type, bitmap, corners, recent, textBody }, [
+          bitmap,
+        ]);
       } catch (cause) {
         clearTimeout(timer);
         pending.delete(id);
@@ -80,7 +83,15 @@ export function usePageDetection() {
       bitmap: ImageBitmap,
       corners: Quad | null,
       recent: RecentPage[] = [],
-    ) => request('process', bitmap, corners, recent) as Promise<ProcessedImage>,
+      textBody: Quad | null = null,
+    ) =>
+      request(
+        'process',
+        bitmap,
+        corners,
+        recent,
+        textBody,
+      ) as Promise<ProcessedImage>,
     terminate,
   };
 }

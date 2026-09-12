@@ -113,3 +113,41 @@ export function canCaptureTextBody(
   }
   return count >= config.textCaptureMinLines;
 }
+
+/** Check real ink in four bands around the detected rectangle, not just its position. */
+export function textMarginInk(
+  binary: Uint8Array,
+  width: number,
+  height: number,
+  body: Guide,
+): number {
+  const x0 = Math.floor(body.x * width),
+    y0 = Math.floor(body.y * height);
+  const x1 = Math.ceil((body.x + body.width) * width),
+    y1 = Math.ceil((body.y + body.height) * height);
+  const pad = Math.max(
+    3,
+    Math.round(Math.min(width, height) * config.textClearMargin),
+  );
+  if (x0 < pad || y0 < pad || x1 + pad >= width || y1 + pad >= height) return 1;
+  // estimateTextBody already pads the ink bounds. Inspect that surrounding
+  // whitespace rather than reaching beyond it into a gutter or paper edge.
+  const bands = [
+    [x0, y0, x1, y0 + pad],
+    [x0, y1 - pad, x1, y1],
+    [x0, y0 + pad, x0 + pad, y1 - pad],
+    [x1 - pad, y0 + pad, x1, y1 - pad],
+  ];
+  return Math.max(
+    ...bands.map(([left, top, right, bottom]) => {
+      let ink = 0,
+        total = 0;
+      for (let y = top!; y < bottom!; y++)
+        for (let x = left!; x < right!; x++) {
+          total++;
+          if (binary[y * width + x]) ink++;
+        }
+      return ink / Math.max(1, total);
+    }),
+  );
+}

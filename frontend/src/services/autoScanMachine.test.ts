@@ -207,3 +207,41 @@ it('does not interpret switching from page-edge to text detection as a page turn
     ).toBe(false);
   expect(machine.state).toBe('waitingForPageChange');
 });
+
+it('waits for text focus and lighting, then captures without any page boundary', () => {
+  const machine = new AutoScanMachine();
+  const d: Detection = {
+    ...page(),
+    source: 'text',
+    corners: null,
+    textBody: page().corners,
+    hint: 'clearMargin',
+  };
+  machine.sample({ ...d, brightness: 40 }, 0);
+  expect(machine.message).toContain('light');
+  machine.sample({ ...d, sharpness: 2 }, 170);
+  expect(machine.message).toContain('blurry');
+  machine.sample({ ...d, aligned: false }, 340);
+  expect(machine.message).toContain('margin');
+  let captured = false;
+  for (let t = 510; t < 1300; t += 170)
+    captured = machine.sample(d, t) || captured;
+  expect(captured).toBe(true);
+});
+
+it('does not capture sharp text oscillating inside the overall position tolerance', () => {
+  const machine = new AutoScanMachine();
+  for (let i = 0; i < 15; i++) {
+    const offset = i === 0 ? 0 : i % 2 === 0 ? -0.01 : 0.025;
+    const textBody = page().corners!.map((p) => ({
+      ...p,
+      x: p.x + offset,
+    })) as Detection['corners'];
+    expect(
+      machine.sample(
+        { ...page(), source: 'text', corners: null, textBody },
+        i * 170,
+      ),
+    ).toBe(false);
+  }
+});
