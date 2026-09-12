@@ -78,6 +78,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
   let videoCallback: number | undefined;
   let callbackVideo: HTMLVideoElement | null = null;
   let lastAnalysis = -Infinity;
+  let preferPixels = false;
   function cancelSchedule() {
     clearTimeout(timer);
     if (videoCallback !== undefined)
@@ -154,7 +155,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Camera frames unavailable.');
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    return canvasFrame(canvas);
+    return canvasFrame(canvas, preferPixels);
   }
   async function snapshot(current: number, maxEdge?: number) {
     const bitmap = await frame(maxEdge);
@@ -219,7 +220,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
           canvas
             .getContext('2d')!
             .drawImage(capturedCanvas, 0, 0, canvas.width, canvas.height);
-          const previewFrame = await canvasFrame(canvas);
+          const previewFrame = await canvasFrame(canvas, preferPixels);
           if (!valid()) {
             if ('close' in previewFrame) previewFrame.close();
             return;
@@ -233,7 +234,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
             return;
           }
         }
-        fullFrame = await canvasFrame(capturedCanvas);
+        fullFrame = await canvasFrame(capturedCanvas, preferPixels);
       } finally {
         capturedCanvas.width = capturedCanvas.height = 1;
       }
@@ -322,9 +323,28 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
     if (Number.isFinite(elapsed) && elapsed > 0) fps.value = 1000 / elapsed;
     lastAnalysis = start;
     try {
-      const result = await vision.analyze(
-        await snapshot(current, config.analysisMaxEdge),
-      );
+      let result: Detection;
+      try {
+        result = await vision.analyze(
+          await snapshot(current, config.analysisMaxEdge),
+        );
+      } catch (cause) {
+        if (
+          current !== generation ||
+          disposed ||
+          paused.value ||
+          finishing.value ||
+          preferPixels
+        )
+          throw cause;
+        // Retry once with transferable pixels and a fresh worker. The main-thread
+        // OffscreenCanvas API does not guarantee worker bitmap support.
+        preferPixels = true;
+        vision.terminate();
+        result = await vision.analyze(
+          await snapshot(current, config.analysisMaxEdge),
+        );
+      }
       if (current !== generation || disposed || paused.value || finishing.value)
         return;
       analysisDuration.value = performance.now() - start;
@@ -335,16 +355,20 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
         !queue.hasCapacity.value,
       );
       if (shouldCapture) await capture();
-    } catch {
+    } catch (cause) {
       if (
         current === generation &&
         !disposed &&
         !finishing.value &&
         !paused.value
-      )
+      ) {
+        vision.terminate();
         machine.fail(
-          'Scanner could not analyze the camera. Resume to try again.',
+          cause instanceof Error && cause.message.startsWith('Scanner:')
+            ? cause.message.slice(8).trim()
+            : 'Scanner could not read the camera frame. Tap Resume to restart it.',
         );
+      }
     }
   }
   function schedule() {
@@ -380,8 +404,33 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
     cancelSchedule();
     machine.pause(message);
   }
-  function resume() {
-    if (!busy.value) start();
+  async function resume() {
+    if (busy.value || disposed || finishing.value) return;
+    const current = ++generation;
+    cancelSchedule();
+    vision.terminate();
+    flight = null;
+    lastAnalysis = -Infinity;
+    detection.value = null;
+    paused.value = true;
+    machine.state = 'searching';
+    machine.message = 'Restarting scanner...';
+    displayMessage.value = machine.message;
+    try {
+      const video = getVideo();
+      if (!video) throw new Error('Camera unavailable');
+      if (video.paused) await video.play();
+      if (current !== generation || disposed || finishing.value) return;
+      start();
+      // Do not wait for a video callback that a stalled preview may never emit.
+      cancelSchedule();
+      schedule();
+    } catch {
+      if (current === generation && !disposed)
+        machine.fail(
+          'Camera preview could not restart. Stop Camera, then Start Camera.',
+        );
+    }
   }
   async function manualCapture() {
     if (!canCapture.value) return;

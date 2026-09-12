@@ -19,7 +19,14 @@ vi.mock('../composables/usePageDetection', () => ({
 }));
 const stillMode = vi.hoisted(() => ({ source: 'video' as 'photo' | 'video' }));
 vi.mock('../services/stillCapture', () => ({
-  canvasFrame: (canvas: HTMLCanvasElement) => createImageBitmap(canvas),
+  canvasFrame: (canvas: HTMLCanvasElement, pixels = false) =>
+    pixels
+      ? Promise.resolve({
+          data: new Uint8ClampedArray(16),
+          width: 2,
+          height: 2,
+        })
+      : createImageBitmap(canvas),
   captureStill: async (video: HTMLVideoElement) => {
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth;
@@ -58,6 +65,7 @@ const page = (): Detection => ({
 });
 beforeEach(async () => {
   stillMode.source = 'video';
+  vision.terminate.mockReset();
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
   vision.analyze.mockResolvedValue(page());
   vision.process.mockResolvedValue({
@@ -123,7 +131,7 @@ async function ready() {
     videoWidth: { value: 1920 },
     videoHeight: { value: 1080 },
     readyState: { value: 2 },
-    paused: { value: false },
+    paused: { value: false, configurable: true },
   });
   await video.trigger('playing');
   await flushPromises();
@@ -226,7 +234,9 @@ describe('continuous scan screen', () => {
     expect(wrapper.get('[role="alert"]').text()).toContain(
       'permission was denied',
     );
-    vision.analyze.mockRejectedValueOnce(new Error('worker failed'));
+    vision.analyze
+      .mockRejectedValueOnce(new Error('worker failed'))
+      .mockRejectedValueOnce(new Error('worker failed'));
     await ready();
     await advance(1);
     expect(wrapper.get('[data-state]').attributes('data-state')).toBe('error');
@@ -460,4 +470,70 @@ it('re-detects native photo coordinates instead of scaling preview corners acros
     null,
   );
   expect(useScanStore().pages).toHaveLength(1);
+});
+
+it('recovers automatically when the worker cannot read bitmaps but can read pixels', async () => {
+  vision.analyze.mockImplementation(async (frame: unknown) => {
+    if (!('data' in (frame as object)))
+      throw new Error('Bitmap context unavailable');
+    return page();
+  });
+  await ready();
+  await advance(1000);
+  expect(vision.terminate).toHaveBeenCalled();
+  expect(useScanStore().pages).toHaveLength(1);
+});
+it('Resume replaces a failed worker and restarts a paused video', async () => {
+  let broken = true;
+  vision.analyze.mockImplementation(async () => {
+    if (broken) throw new Error('runtime rejected');
+    return page();
+  });
+  const video = await ready();
+  await advance(1);
+  expect(wrapper.get('[data-state]').attributes('data-state')).toBe('error');
+  Object.defineProperty(video.element, 'paused', {
+    value: true,
+    configurable: true,
+  });
+  const plays = vi.mocked(HTMLMediaElement.prototype.play).mock.calls.length;
+  vision.terminate.mockImplementation(() => {
+    broken = false;
+  });
+  vi.mocked(HTMLMediaElement.prototype.play).mockImplementation(async () => {
+    Object.defineProperty(video.element, 'paused', {
+      value: false,
+      configurable: true,
+    });
+  });
+  await button('Resume').trigger('click');
+  await advance(800);
+  expect(vi.mocked(HTMLMediaElement.prototype.play).mock.calls.length).toBe(
+    plays + 1,
+  );
+  expect(useScanStore().pages).toHaveLength(1);
+});
+it('does not restart after Stop while Resume is waiting for video playback', async () => {
+  const video = await ready();
+  await advance(1);
+  await button('Pause').trigger('click');
+  Object.defineProperty(video.element, 'paused', {
+    value: true,
+    configurable: true,
+  });
+  let complete!: () => void;
+  vi.mocked(HTMLMediaElement.prototype.play).mockImplementation(
+    () =>
+      new Promise<void>((r) => {
+        complete = r;
+      }),
+  );
+  await button('Resume').trigger('click');
+  await button('Stop Camera').trigger('click');
+  const calls = vision.analyze.mock.calls.length;
+  complete();
+  await flushPromises();
+  await advance(1000);
+  expect(vision.analyze).toHaveBeenCalledTimes(calls);
+  expect(useScanStore().pages).toHaveLength(0);
 });

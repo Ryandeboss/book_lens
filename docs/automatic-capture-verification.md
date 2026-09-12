@@ -99,3 +99,11 @@ If the preview stalls or the phone heats up, increase `analysisIntervalMs` befor
 ## Browser API references
 
 Native still support is feature-detected because [ImageCapture/takePhoto](https://developer.mozilla.org/en-US/docs/Web/API/ImageCapture/takePhoto) is not universal. [requestVideoFrameCallback](https://developer.mozilla.org/en-US/docs/Web/API/HTMLVideoElement/requestVideoFrameCallback) follows video presentation, with the existing timer fallback for older browsers. [OffscreenCanvas](https://developer.mozilla.org/en-US/docs/Web/API/OffscreenCanvas) accelerates worker image handling; transferable RGBA and ordinary canvas encoding keep it optional. No new motion permission or platform-only text API is needed.
+
+## Camera-analysis recovery follow-up
+
+Resume now invalidates old work, terminates the analysis worker, resets frame scheduling, restarts a paused video and submits a fresh frame immediately. Previously it only reset the state machine, so a worker with failed initialization could fail repeatedly. Accepted pages and the OCR queue are preserved.
+
+The scanner makes one bounded recovery attempt using a fresh worker and transferable RGBA pixels when initial analysis fails. Bitmap creation that rejects despite API presence falls back to pixels as well. Worker image encoding returns RGBA for browser canvas encoding if its OffscreenCanvas context or encoder is unusable. CV computations remain in the worker. Safe errors distinguish loading, initialization, timeout and analysis failures without displaying raw runtime errors or page data.
+
+Verification: 129 tests (106 frontend +23 backend), lint, typecheck and builds pass. Tests cover worker replacement on Resume, paused video playback, Stop during pending Resume, failed bitmap conversion, automatic pixel recovery and safe worker error reporting. The Docker/Nginx browser smoke test passes with `--broken-worker-canvas`, deliberately advertising a worker canvas API whose context returns null. It recovers, captures two ordered pages, uploads corrected JPEG, uses real Tesseract fallback, rejects known duplicates, and terminates all three created workers. The exact original failure on the user's phone has not been observed directly; physical-device confirmation is still needed.

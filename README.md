@@ -29,6 +29,8 @@ The sweep/progress display reflects capture readiness, not completion of Google 
 
 See the [automatic capture report and phone tuning checklist](docs/automatic-capture-verification.md) for the exact gates, compatibility fallbacks, tests, and settings. Physical iPhone/Android testing is still required.
 
+If page analysis fails, BookLens tries a compatible pixel-transfer path once. Resume rebuilds page detection and restarts a paused preview. Loading/initialization failures now provide specific recovery guidance. After a scanner update is deployed, reload the site once to load the new code.
+
 Pause stops automatic acceptance. Resume restarts detection; Manual Capture bypasses the stability/quality gates and refreshes detection before photographing the visible preview. Manual captures still use duplicate protection and the OCR queue. Stop Camera releases the camera; accepted pages remain available in Review. Backgrounding pauses scanning and requires an explicit Resume.
 
 Done stops the camera and new captures, waits for pending OCR, then opens Review. Edit or delete pages and Download TXT. Raw OCR stays separate from edited text; export uses edited text in page order, separated by three newlines. Failed pages offer Retry while their temporary image remains available, or instructions to delete/rescan. Nearly blank OCR results are marked for review. Start New Scan asks before clearing the document.

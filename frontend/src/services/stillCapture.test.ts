@@ -138,3 +138,17 @@ it('encodes worker pixels using canvas and releases the canvas backing store', a
     ).width,
   ).toBe(1);
 });
+
+it('falls back to pixels if the advertised bitmap API rejects camera frames', async () => {
+  vi.stubGlobal('OffscreenCanvas', class {});
+  const bitmap = vi
+    .fn()
+    .mockRejectedValue(new DOMException('unsupported', 'NotSupportedError'));
+  vi.stubGlobal('createImageBitmap', bitmap);
+  expect(await canvasFrame(document.createElement('canvas'))).toHaveProperty(
+    'data',
+  );
+  expect(bitmap).toHaveBeenCalledOnce();
+  await canvasFrame(document.createElement('canvas'), true);
+  expect(bitmap).toHaveBeenCalledOnce();
+});

@@ -21,12 +21,12 @@ export function usePageDetection() {
       timer: ReturnType<typeof setTimeout>;
     }
   >();
-  function terminate() {
+  function terminate(cause = new Error('Page analysis stopped')) {
     worker?.terminate();
     worker = null;
     for (const job of pending.values()) {
       clearTimeout(job.timer);
-      job.reject(new Error('Page analysis stopped'));
+      job.reject(cause);
     }
     pending.clear();
   }
@@ -70,7 +70,13 @@ export function usePageDetection() {
         if (event.data.error || !event.data.result)
           finish(
             undefined,
-            new Error(event.data.error ?? 'Page processing failed'),
+            new Error(
+              event.data.errorStage === 'initialization'
+                ? 'Scanner: Page detection could not start. Tap Resume to reload it. If it persists, reload this page.'
+                : event.data.errorStage === 'analysis'
+                  ? 'Scanner: Page detection could not read this frame. Tap Resume to restart it.'
+                  : (event.data.error ?? 'Page processing failed'),
+            ),
           );
         else if ('pixels' in event.data.result) {
           const { pixels, ...result } = event.data.result;
@@ -80,12 +86,28 @@ export function usePageDetection() {
           );
         } else finish(event.data.result);
       };
-      worker.onerror = () => terminate();
+      worker.onerror = () =>
+        terminate(
+          new Error(
+            'Scanner: Page detection could not load. Check your connection, then tap Resume.',
+          ),
+        );
+      worker.onmessageerror = () =>
+        terminate(
+          new Error(
+            'Scanner: Camera frames could not be transferred. Tap Resume to restart it.',
+          ),
+        );
     }
     const id = ++nextId;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(
-        () => terminate(),
+        () =>
+          terminate(
+            new Error(
+              'Scanner: Page detection stopped responding. Tap Resume to reload it.',
+            ),
+          ),
         scannerConfig.workerTimeoutMs,
       );
       pending.set(id, { resolve, reject, timer });

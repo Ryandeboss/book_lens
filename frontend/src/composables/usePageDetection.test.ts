@@ -115,3 +115,27 @@ it('closes an untransferred bitmap if worker startup or postMessage fails', asyn
   await expect(vision.analyze(bitmap)).rejects.toThrow('unsupported');
   expect(bitmap.close).toHaveBeenCalledTimes(2);
 });
+
+it('reports initialization failure without exposing raw runtime errors', async () => {
+  const { vision, worker } = setup();
+  const result = vision.analyze({ close: vi.fn() } as unknown as ImageBitmap);
+  const rejected = expect(result).rejects.toThrow(
+    'Page detection could not start',
+  );
+  worker.onmessage!({
+    data: {
+      id: 1,
+      error: 'raw runtime internals',
+      errorStage: 'initialization',
+    },
+  } as MessageEvent);
+  await rejected;
+});
+it('reports worker load failures and rejects pending work', async () => {
+  const { vision, worker } = setup();
+  const result = vision.analyze({ close: vi.fn() } as unknown as ImageBitmap);
+  const rejected = expect(result).rejects.toThrow('Check your connection');
+  worker.onerror!();
+  await rejected;
+  expect(worker.terminate).toHaveBeenCalledOnce();
+});

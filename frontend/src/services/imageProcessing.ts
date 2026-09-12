@@ -487,7 +487,32 @@ export async function preparePage(
     // Conservative global contrast stretch; preserve antialiased strokes instead of hard thresholding.
     cv.normalize(gray, normalized, 0, 255, cv.NORM_MINMAX, cv.CV_8U);
     cv.cvtColor(normalized, rgba, cv.COLOR_GRAY2RGBA);
-    if (typeof OffscreenCanvas === 'undefined')
+    try {
+      if (typeof OffscreenCanvas === 'undefined')
+        throw new Error('Worker canvas unavailable');
+      const canvas = new OffscreenCanvas(size.width, size.height),
+        context = canvas.getContext('2d');
+      if (!context) throw new Error('Image canvas unavailable');
+      context.putImageData(
+        new ImageData(
+          new Uint8ClampedArray(rgba.data),
+          size.width,
+          size.height,
+        ),
+        0,
+        0,
+      );
+      let blob = await canvas.convertToBlob({
+        type: config.ocrImageType,
+        quality: config.ocrJpegQuality,
+      });
+      if (config.ocrUseSmallerPng) {
+        const png = await canvas.convertToBlob({ type: 'image/png' });
+        if (png.size < blob.size) blob = png;
+      }
+      return { blob, fingerprint, visualFingerprint, duplicateMatch, ...size };
+    } catch {
+      // API presence does not guarantee a working 2D context or encoder.
       return {
         pixels: { data: new Uint8ClampedArray(rgba.data), ...size },
         fingerprint,
@@ -495,23 +520,7 @@ export async function preparePage(
         duplicateMatch,
         ...size,
       };
-    const canvas = new OffscreenCanvas(size.width, size.height),
-      context = canvas.getContext('2d');
-    if (!context) throw new Error('Image canvas unavailable');
-    context.putImageData(
-      new ImageData(new Uint8ClampedArray(rgba.data), size.width, size.height),
-      0,
-      0,
-    );
-    let blob = await canvas.convertToBlob({
-      type: config.ocrImageType,
-      quality: config.ocrJpegQuality,
-    });
-    if (config.ocrUseSmallerPng) {
-      const png = await canvas.convertToBlob({ type: 'image/png' });
-      if (png.size < blob.size) blob = png;
     }
-    return { blob, fingerprint, visualFingerprint, duplicateMatch, ...size };
   } finally {
     owned.reverse().forEach((m) => m.delete());
   }

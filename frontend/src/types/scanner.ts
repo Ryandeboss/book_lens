@@ -96,4 +96,5 @@ export type VisionResponse = {
   id: number;
   result?: Detection | ProcessedImage | RawProcessedImage;
   error?: string;
+  errorStage?: 'initialization' | 'analysis' | 'processing';
 };

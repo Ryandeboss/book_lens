@@ -32,13 +32,22 @@ export async function encodePixels(pixels: PixelFrame) {
     canvas.width = canvas.height = 1;
   }
 }
-export function canvasFrame(canvas: HTMLCanvasElement): Promise<VisionFrame> {
+export async function canvasFrame(
+  canvas: HTMLCanvasElement,
+  preferPixels = false,
+): Promise<VisionFrame> {
   // Older Safari can transfer pixels to a worker without OffscreenCanvas.
   if (
+    !preferPixels &&
     typeof OffscreenCanvas !== 'undefined' &&
     typeof createImageBitmap === 'function'
-  )
-    return createImageBitmap(canvas);
+  ) {
+    try {
+      return await createImageBitmap(canvas);
+    } catch {
+      /* Some cameras expose bitmap support but reject camera canvases. */
+    }
+  }
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Image canvas unavailable');
   const image = context.getImageData(0, 0, canvas.width, canvas.height);
