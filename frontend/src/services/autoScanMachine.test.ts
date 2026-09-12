@@ -82,7 +82,7 @@ describe('automatic scanner state machine', () => {
     expect(machine.sample(page(), 170 + config.maxSampleGapMs + 1)).toBe(false);
     machine.duplicate(page().signature);
     expect(stabilize(machine, 2000)).toBe(false);
-    expect(machine.state).toBe('waitingForPageChange');
+    expect(machine.state).toBe('duplicate');
   });
 });
 
@@ -106,3 +106,46 @@ it.each([false, true])(
     expect(stabilize(machine, 680)).toBe(true);
   },
 );
+
+it('ignores camera motion when normalized page content is unchanged', () => {
+  const machine = new AutoScanMachine();
+  const content = {
+    gray: [0.1, -0.1],
+    edges: [0.2, 0.1],
+    hash: '0123456789abcdef',
+    density: [0.2, 0.1],
+  };
+  machine.accepted(page().signature, 0, 'Captured', content);
+  for (let t = 170; t < 3000; t += 170)
+    expect(
+      machine.sample({ ...page(), signature: [-0.4, 0.4], content }, t),
+    ).toBe(false);
+  expect(machine.state).toBe('waitingForPageChange');
+  const changed = { ...content, gray: [-0.2, 0.2], edges: [0.1, 0.3] };
+  machine.sample({ ...page(), content: changed }, 3100);
+  machine.sample({ ...page(), content: changed }, 3270);
+  expect(machine.state).toBe('stabilizing');
+});
+it('text body motion resets stability; absent body never blocks a sparse page', () => {
+  const machine = new AutoScanMachine();
+  for (let t = 0; t < 3000; t += 170) {
+    const textBody = page().corners!.map((p) => ({
+      ...p,
+      x: p.x + (t % 340 === 0 ? 0.04 : 0),
+    })) as Detection['corners'];
+    expect(machine.sample({ ...page(), textBody }, t)).toBe(false);
+  }
+  expect(stabilize(new AutoScanMachine())).toBe(true);
+});
+it('expires feedback without another camera frame and throttles duplicate notifications', () => {
+  const machine = new AutoScanMachine();
+  machine.accepted(page().signature, 0, 'Captured');
+  machine.endFlash(config.flashMs + 1);
+  expect(machine.state).toBe('waitingForPageChange');
+  machine.duplicate(page().signature, 1000);
+  machine.duplicate(page().signature, 1100);
+  expect(machine.duplicateNotifications).toBe(1);
+  machine.duplicate(page().signature, 1000 + config.duplicateMessageCooldownMs);
+  expect(machine.duplicateNotifications).toBe(2);
+  expect(machine.state).toBe('duplicate');
+});

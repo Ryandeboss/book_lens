@@ -102,7 +102,13 @@ try {
   console.log(
     'PASS stable page automatically captured with green confirmation',
   );
-  await sleep(2200);
+  if (
+    !(await evaluate(
+      "!!document.querySelector('.accepted-region') && !getComputedStyle(document.querySelector('.scanner-guide')).backgroundColor.includes('0.13')",
+    ))
+  )
+    throw new Error('Missing regional success overlay');
+  await sleep(5200);
   if (
     !(await evaluate(
       "document.querySelector('.counts').textContent.includes('1 captured')",
@@ -127,6 +133,20 @@ try {
   )
     throw new Error('Manual duplicate accepted');
   console.log('PASS manual duplicate ignored');
+  await evaluate('window.testPage=0');
+  await sleep(650);
+  await evaluate('window.testPage=1');
+  await wait(
+    "document.querySelector('[data-state]')?.dataset.state==='duplicate'",
+    45000,
+  );
+  if (
+    !(await evaluate(
+      "document.querySelector('.counts').textContent.includes('2 captured')",
+    ))
+  )
+    throw new Error('Backward page duplicated');
+  console.log('PASS backward turn rejects an older page before OCR');
   if (
     !(await evaluate('document.documentElement.scrollWidth<=window.innerWidth'))
   )

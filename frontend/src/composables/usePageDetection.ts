@@ -1,6 +1,7 @@
 import { onUnmounted } from 'vue';
 import type {
   Detection,
+  RecentPage,
   Quad,
   ProcessedImage,
   VisionResponse,
@@ -31,6 +32,7 @@ export function usePageDetection() {
     type: 'analyze' | 'process',
     bitmap: ImageBitmap,
     corners: Quad | null = null,
+    recent: RecentPage[] = [],
   ): Promise<Detection | ProcessedImage> {
     if (!worker) {
       try {
@@ -61,7 +63,7 @@ export function usePageDetection() {
       );
       pending.set(id, { resolve, reject, timer });
       try {
-        worker!.postMessage({ id, type, bitmap, corners }, [bitmap]);
+        worker!.postMessage({ id, type, bitmap, corners, recent }, [bitmap]);
       } catch (cause) {
         clearTimeout(timer);
         pending.delete(id);
@@ -74,8 +76,11 @@ export function usePageDetection() {
   return {
     analyze: (bitmap: ImageBitmap) =>
       request('analyze', bitmap) as Promise<Detection>,
-    process: (bitmap: ImageBitmap, corners: Quad | null) =>
-      request('process', bitmap, corners) as Promise<ProcessedImage>,
+    process: (
+      bitmap: ImageBitmap,
+      corners: Quad | null,
+      recent: RecentPage[] = [],
+    ) => request('process', bitmap, corners, recent) as Promise<ProcessedImage>,
     terminate,
   };
 }

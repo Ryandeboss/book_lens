@@ -1,6 +1,12 @@
 import type * as CV from '@techstark/opencv-js';
 import { scannerConfig as config } from '../config/scanner';
-import type { Detection, Quad, ProcessedImage } from '../types/scanner';
+import type {
+  Detection,
+  Quad,
+  ProcessedImage,
+  RecentPage,
+  PageFingerprint,
+} from '../types/scanner';
 import {
   alignmentFor,
   guideForFrame,
@@ -9,10 +15,11 @@ import {
   outputSize,
   polygonArea,
 } from './scannerGeometry';
-import { normalizeSignature } from './pageFingerprint';
+import { visualSignature, findRecentDuplicate } from './pageFingerprint';
+import { estimateTextBody } from './textBody';
 type OpenCv = typeof CV;
 
-function signature(cv: OpenCv, gray: CV.Mat): number[] {
+function signature(cv: OpenCv, gray: CV.Mat) {
   const small = new cv.Mat();
   try {
     cv.resize(
@@ -23,7 +30,7 @@ function signature(cv: OpenCv, gray: CV.Mat): number[] {
       0,
       cv.INTER_AREA,
     );
-    return normalizeSignature(Array.from(small.data));
+    return visualSignature(Array.from(small.data), small.cols, small.rows);
   } finally {
     small.delete();
   }
@@ -59,11 +66,15 @@ export function analyzePage(cv: OpenCv, bitmap: ImageBitmap): Detection {
       cv.CHAIN_APPROX_SIMPLE,
     );
     const guide = guideForFrame(src.cols, src.rows);
+    let approximate = false,
+      wide = false;
+    const candidates: { quad: Quad; score: number }[] = [];
     let best: Quad | null = null,
       bestScore = 0;
     for (let i = 0; i < contours.size(); i++) {
       const contour = contours.get(i),
-        approx = new cv.Mat();
+        approx = new cv.Mat(),
+        hull = new cv.Mat();
       try {
         const area = cv.contourArea(contour) / (src.cols * src.rows);
         if (area < config.minPageArea) continue;
@@ -73,6 +84,17 @@ export function analyzePage(cv: OpenCv, bitmap: ImageBitmap): Detection {
           config.contourEpsilon * cv.arcLength(contour, true),
           true,
         );
+        let relaxed = false;
+        if (approx.rows !== 4 || !cv.isContourConvex(approx)) {
+          cv.convexHull(contour, hull);
+          cv.approxPolyDP(
+            hull,
+            approx,
+            config.contourRelaxedEpsilon * cv.arcLength(hull, true),
+            true,
+          );
+          relaxed = true;
+        }
         if (approx.rows !== 4 || !cv.isContourConvex(approx)) continue;
         const p = orderCorners(
           Array.from({ length: 4 }, (_, j) => ({
@@ -82,57 +104,157 @@ export function analyzePage(cv: OpenCv, bitmap: ImageBitmap): Detection {
         );
         const size = outputSize(p, src.cols, src.rows),
           aspect = size.width / size.height;
-        if (aspect < config.minAspect || aspect > config.maxAspect) continue;
+        if (aspect > config.singlePageMaxAspect) {
+          wide = true;
+          continue;
+        }
+        if (aspect < config.minAspect) continue;
         const a = alignmentFor(p, guide);
-        const score = polygonArea(p) * (a.score + 0.2);
+        const score = polygonArea(p) * (a.score + 0.2) * (relaxed ? 0.95 : 1);
+        candidates.push({ quad: p, score });
         if (score > bestScore) {
           best = p;
+          approximate = relaxed;
           bestScore = score;
         }
       } finally {
+        hull.delete();
         approx.delete();
         contour.delete();
       }
     }
-    // Measure quality inside the page, away from the high-contrast outer border.
+    // Distinct, similarly ranked page candidates are ambiguous; nested contours are not.
+    const center = (q: Quad) => ({
+      x: q.reduce((n, p) => n + p.x, 0) / 4,
+      y: q.reduce((n, p) => n + p.y, 0) / 4,
+    });
+    const ambiguous =
+      best &&
+      candidates.some(
+        (c) =>
+          c.score >= bestScore * (1 - config.candidateAmbiguity) &&
+          Math.hypot(
+            center(c.quad).x - center(best!).x,
+            center(c.quad).y - center(best!).y,
+          ) > 0.18,
+      );
+    if (ambiguous) best = null;
     const bounds = best ?? guideCorners(guide);
-    const xs = bounds.map((p) => p.x),
-      ys = bounds.map((p) => p.y);
-    const x = Math.max(
-      0,
-      Math.floor(
-        (Math.min(...xs) + (Math.max(...xs) - Math.min(...xs)) * 0.12) *
-          src.cols,
-      ),
-    );
-    const y = Math.max(
-      0,
-      Math.floor(
-        (Math.min(...ys) + (Math.max(...ys) - Math.min(...ys)) * 0.12) *
-          src.rows,
-      ),
-    );
-    const width = Math.max(
+    const size = outputSize(bounds, src.cols, src.rows);
+    const scale = Math.min(
       1,
-      Math.min(
-        src.cols - x,
-        Math.floor((Math.max(...xs) - Math.min(...xs)) * src.cols * 0.76),
+      config.textPreviewMaxEdge / Math.max(size.width, size.height),
+    );
+    const w = Math.max(32, Math.round(size.width * scale)),
+      h = Math.max(32, Math.round(size.height * scale));
+    const from = own(
+      cv.matFromArray(
+        4,
+        1,
+        cv.CV_32FC2,
+        bounds.flatMap((p) => [p.x * src.cols, p.y * src.rows]),
       ),
     );
-    const height = Math.max(
-      1,
-      Math.min(
-        src.rows - y,
-        Math.floor((Math.max(...ys) - Math.min(...ys)) * src.rows * 0.76),
+    const to = own(
+      cv.matFromArray(4, 1, cv.CV_32FC2, [
+        0,
+        0,
+        w - 1,
+        0,
+        w - 1,
+        h - 1,
+        0,
+        h - 1,
+      ]),
+    );
+    const transform = own(cv.getPerspectiveTransform(from, to)),
+      inverse = own(cv.getPerspectiveTransform(to, from));
+    const page = own(new cv.Mat());
+    cv.warpPerspective(
+      gray,
+      page,
+      transform,
+      new cv.Size(w, h),
+      cv.INTER_LINEAR,
+      cv.BORDER_REPLICATE,
+    );
+    const roi = own(
+      page.roi(
+        new cv.Rect(
+          Math.floor(w * 0.03),
+          Math.floor(h * 0.03),
+          Math.floor(w * 0.94),
+          Math.floor(h * 0.94),
+        ),
       ),
     );
-    const roi = own(gray.roi(new cv.Rect(x, y, width, height))),
-      lap = own(new cv.Mat()),
+    const lap = own(new cv.Mat()),
       mean = own(new cv.Mat()),
       deviation = own(new cv.Mat());
     cv.Laplacian(roi, lap, cv.CV_64F);
     cv.meanStdDev(lap, mean, deviation);
     const sharpness = deviation.data64F[0]! ** 2;
+    const binary = own(new cv.Mat()),
+      joined = own(new cv.Mat());
+    cv.adaptiveThreshold(
+      page,
+      binary,
+      255,
+      cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+      cv.THRESH_BINARY_INV,
+      config.textThresholdBlock,
+      config.textThresholdOffset,
+    );
+    const kernel = own(
+      cv.getStructuringElement(
+        cv.MORPH_RECT,
+        new cv.Size(config.textLineKernelWidth, 1),
+      ),
+    );
+    cv.morphologyEx(binary, joined, cv.MORPH_CLOSE, kernel);
+    const lines = own(new cv.MatVector()),
+      lineHierarchy = own(new cv.Mat());
+    cv.findContours(
+      joined,
+      lines,
+      lineHierarchy,
+      cv.RETR_EXTERNAL,
+      cv.CHAIN_APPROX_SIMPLE,
+    );
+    const boxes = [];
+    for (let i = 0; i < lines.size(); i++) {
+      const line = lines.get(i);
+      try {
+        const r = cv.boundingRect(line);
+        boxes.push({
+          x: r.x / w,
+          y: r.y / h,
+          width: r.width / w,
+          height: r.height / h,
+        });
+      } finally {
+        line.delete();
+      }
+    }
+    const body = best ? estimateTextBody(boxes) : null;
+    const matrix = inverse.data64F;
+    const project = (x: number, y: number) => {
+      const X = x * (w - 1),
+        Y = y * (h - 1),
+        z = matrix[6]! * X + matrix[7]! * Y + matrix[8]!;
+      return {
+        x: (matrix[0]! * X + matrix[1]! * Y + matrix[2]!) / z / src.cols,
+        y: (matrix[3]! * X + matrix[4]! * Y + matrix[5]!) / z / src.rows,
+      };
+    };
+    const textBody: Quad | null = body
+      ? [
+          project(body.x, body.y),
+          project(body.x + body.width, body.y),
+          project(body.x + body.width, body.y + body.height),
+          project(body.x, body.y + body.height),
+        ]
+      : null;
     const guideRoi = own(
       gray.roi(
         new cv.Rect(
@@ -152,7 +274,19 @@ export function analyzePage(cv: OpenCv, bitmap: ImageBitmap): Detection {
       alignment: alignment.score,
       sharpness,
       brightness: cv.mean(roi)[0]!,
-      signature: signature(cv, guideRoi),
+      signature: signature(cv, guideRoi).gray,
+      content: best ? signature(cv, page) : undefined,
+      textBody,
+      approximate,
+      confidence: alignment.score,
+      hint:
+        ambiguous || (!best && wide)
+          ? 'centerOnePage'
+          : best &&
+              polygonArea(best) <
+                guide.width * guide.height * config.minGuideCoverage
+            ? 'moveCloser'
+            : 'fitPage',
     };
   } finally {
     owned.reverse().forEach((m) => m.delete());
@@ -162,6 +296,7 @@ export async function preparePage(
   cv: OpenCv,
   bitmap: ImageBitmap,
   corners: Quad | null,
+  recent: RecentPage[] = [],
 ): Promise<ProcessedImage> {
   const owned: { delete(): void }[] = [];
   const own = <T extends { delete(): void }>(value: T): T => {
@@ -206,7 +341,47 @@ export async function preparePage(
       cv.BORDER_REPLICATE,
     );
     cv.cvtColor(corrected, gray, cv.COLOR_RGBA2GRAY);
-    const fingerprint = signature(cv, gray);
+    const visualFingerprint: PageFingerprint = signature(cv, gray);
+    if (config.orbEnabled && typeof cv.ORB === 'function') {
+      try {
+        const featureGray = own(new cv.Mat()),
+          mask = own(new cv.Mat()),
+          descriptors = own(new cv.Mat()),
+          points = own(new cv.KeyPointVector());
+        const orb = own(new cv.ORB());
+        const scale = Math.min(
+          1,
+          config.orbMaxEdge / Math.max(gray.cols, gray.rows),
+        );
+        cv.resize(
+          gray,
+          featureGray,
+          new cv.Size(
+            Math.round(gray.cols * scale),
+            Math.round(gray.rows * scale),
+          ),
+          0,
+          0,
+          cv.INTER_AREA,
+        );
+        (
+          orb as CV.ORB & { setMaxFeatures(count: number): void }
+        ).setMaxFeatures(config.orbMaxFeatures);
+        orb.detectAndCompute(featureGray, mask, points, descriptors);
+        if (descriptors.cols === 32)
+          visualFingerprint.features = {
+            points: Array.from({ length: points.size() }, (_, i) => {
+              const p = points.get(i).pt;
+              return { x: p.x / featureGray.cols, y: p.y / featureGray.rows };
+            }),
+            descriptors: new Uint8Array(descriptors.data),
+          };
+      } catch {
+        /* Optional features must never stop scanning. */
+      }
+    }
+    const duplicateMatch = findRecentDuplicate(visualFingerprint, recent);
+    const fingerprint = visualFingerprint.gray;
     // Conservative global contrast stretch; preserve antialiased strokes instead of hard thresholding.
     cv.normalize(gray, normalized, 0, 255, cv.NORM_MINMAX, cv.CV_8U);
     cv.cvtColor(normalized, rgba, cv.COLOR_GRAY2RGBA);
@@ -226,7 +401,7 @@ export async function preparePage(
       const png = await canvas.convertToBlob({ type: 'image/png' });
       if (png.size < blob.size) blob = png;
     }
-    return { blob, fingerprint, ...size };
+    return { blob, fingerprint, visualFingerprint, duplicateMatch, ...size };
   } finally {
     owned.reverse().forEach((m) => m.delete());
   }

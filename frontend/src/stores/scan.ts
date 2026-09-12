@@ -1,3 +1,5 @@
+import { scannerConfig } from '../config/scanner';
+import type { PageFingerprint } from '../types/scanner';
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import type { ScannedPage, OcrResult } from '../types/Page';
@@ -19,7 +21,10 @@ export const useScanStore = defineStore('scan', () => {
       status: 'ready',
     });
   }
-  function reservePage(fingerprint: number[]) {
+  function reservePage(
+    fingerprint: number[],
+    visualFingerprint?: PageFingerprint,
+  ) {
     const page: ScannedPage = {
       id: crypto.randomUUID(),
       pageNumber: currentPageNumber.value,
@@ -27,8 +32,13 @@ export const useScanStore = defineStore('scan', () => {
       rawText: '',
       editedText: '',
       fingerprint,
+      visualFingerprint,
     };
     pages.value.push(page);
+    for (const old of pages.value.slice(0, -scannerConfig.recentFingerprints)) {
+      old.visualFingerprint = undefined;
+      old.fingerprint = undefined;
+    }
     return page.id;
   }
   function setQueued(id: string) {

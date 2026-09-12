@@ -12,6 +12,8 @@ A mobile-first web application for turning printed pages into editable text. Boo
 - [x] Multi-page scan sessions
 - [x] Editable OCR review
 - [x] TXT export
+- [x] Live page and main text-body overlays
+- [x] Recent-page duplicate prevention with compact fingerprints and ORB
 - [x] Page boundary detection
 - [x] Perspective correction
 - [x] Automatic page capture
@@ -23,6 +25,8 @@ A mobile-first web application for turning printed pages into editable text. Boo
 
 Run `npm.cmd run dev` and open http://localhost:5173/scan. Start Camera, allow access, and fit one page inside the portrait guide. Hold steady until the green check confirms acceptance, then turn the page immediately. OCR runs in the background; the counters distinguish captured and processed pages. If processing falls behind, hold for a moment until capture resumes.
 
+The strong outline follows the detected page; a thinner outline estimates its main printed-text area. The accepted region flashes green with a checkmark. Keeping the same page visible does not scan it twice; returning to one of the last eight accepted pages shows an amber **Already scanned** message when the visual evidence is strong. Center one page if an open spread is ambiguous.
+
 Pause stops automatic acceptance. Resume restarts detection; Manual Capture bypasses the stability/quality gates and refreshes the geometry, using the guide crop if no boundary is found. Manual captures still use duplicate protection and the OCR queue. Stop Camera releases the camera; accepted pages remain available in Review. Backgrounding pauses scanning and requires an explicit Resume.
 
 Done stops the camera and new captures, waits for pending OCR, then opens Review. Edit or delete pages and Download TXT. Raw OCR stays separate from edited text; export uses edited text in page order, separated by three newlines. Failed pages offer Retry while their temporary image remains available, or instructions to delete/rescan. Nearly blank OCR results are marked for review. Start New Scan asks before clearing the document.
@@ -33,7 +37,7 @@ OpenCV is loaded lazily from the application's bundled worker (~15.6 MB before t
 
 Camera access requires HTTPS or desktop localhost. A phone LAN URL such as `http://192.168.x.x:5173` generally cannot use the camera. Use the HTTPS Vercel site for phone testing. See [MDN getUserMedia](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia).
 
-See [Phase 4 verification and phone tuning checklist](docs/phase4-verification.md). Browser tests exercise real OpenCV and OCR using generated pages, but physical camera quality and speed still need testing on Chrome Android and Safari iPhone. This is flat-page perspective correction; curved book gutters, glossy pages, sparse text, and weak edge contrast remain difficult.
+See the current [scanner recognition report and exact phone checklist](docs/scanner-recognition-verification.md), plus the earlier [Phase 4 verification](docs/phase4-verification.md). Browser tests exercise real OpenCV and OCR using generated pages, but physical camera quality and speed still need testing on Chrome Android and Safari iPhone. This is flat-page perspective correction; curved book gutters, glossy pages, sparse text, and weak edge contrast remain difficult.
 
 ## Google OCR setup and privacy
 
@@ -50,7 +54,8 @@ The public OCR endpoint has per-process concurrency and request-rate limits, but
 ## Architecture
 
 ```text
-Camera -> OpenCV correction/compression -> background queue -> Render /api/ocr -> Google Document AI
+Camera -> live page/text detection -> stability -> corrected image + recent-page check
+       -> compressed image -> background queue -> Render /api/ocr -> Google Document AI
                                                         \-> browser Tesseract on cloud failure
 Text/paragraphs -> scan store -> Review -> TXT
 ```

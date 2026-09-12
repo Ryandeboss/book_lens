@@ -1,3 +1,4 @@
+import type { PageFingerprint } from './scanner';
 export type OcrProvider = 'google-document-ai' | 'tesseract';
 export interface OcrParagraph {
   text: string;
@@ -20,6 +21,7 @@ export interface ScannedPage {
   detectedLanguages?: string[];
   status: 'queued' | 'processing' | 'ready' | 'error';
   fingerprint?: number[];
+  visualFingerprint?: PageFingerprint;
   error?: string;
 }
 export interface OcrResult {

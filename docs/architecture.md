@@ -68,7 +68,7 @@ CameraPreview video (useCamera owns tracks)
    |       |
    |       v
    |   usePageDetection -> OpenCV Web Worker
-   |       | contours, normalized corners, quality, guide signature
+   |       | contours, normalized corners, optional main text body, quality, visual signatures
    |       v
    |   AutoScanMachine: alignment + stability + page-change lock
    |       |
@@ -79,7 +79,7 @@ CameraPreview video (useCamera owns tracks)
                |
         high-quality JPEG (0.94) or PNG when smaller
                |
-        conservative recent fingerprint comparison
+        compact fingerprints + optional ORB compare last 8 accepted pages
                |
         reserve numbered page; green confirmation; lock until page changes
                |
@@ -95,11 +95,21 @@ CameraPreview video (useCamera owns tracks)
         Done drains queue -> Review -> edit/delete -> TXT
 ```
 
-`useAutoScan.ts` coordinates scheduling and resource ownership. The typed `AutoScanMachine` owns searching, detected, stabilizing, capturing, captured, waitingForPageChange, paused, finishing, and error states. Additional refs describe actual camera/worker lifecycle and user pause. Sampling never overlaps; full-resolution processing temporarily occupies the same CV worker. Timer cadence accounts for analysis duration and naturally slows on slower devices. Main-thread work is limited to drawing/resizing and creating transferable bitmaps; contour detection, quality measurement, warping, and JPEG/PNG encoding run off the UI thread.
+`useAutoScan.ts` coordinates scheduling and resource ownership. The typed `AutoScanMachine` owns searching, detected, stabilizing, capturing, captured, waitingForPageChange, duplicate, paused, finishing, and error states. Additional refs describe actual camera/worker lifecycle and user pause. Sampling never overlaps; full-resolution processing temporarily occupies the same CV worker. Timer cadence accounts for analysis duration and naturally slows on slower devices. Main-thread work is limited to drawing/resizing and creating transferable bitmaps; contour detection, quality measurement, warping, and JPEG/PNG encoding run off the UI thread.
 
 `scannerGeometry.ts` supplies normalized guide/corner math, candidate alignment, and output dimensions. `imageProcessing.ts` owns OpenCV operations. `usePageDetection.ts` lazily creates a module worker, correlates requests, transfers bitmap ownership, and handles crashes/timeouts. The worker closes each bitmap and deletes temporary Mats, contours, transforms, and ROI objects in finally blocks. Stop, Done, and Scan unmount terminate it; generation checks discard stale results and close snapshots returned after cancellation. Camera streams keep the existing permission, late-request, track-ended, and unmount cleanup protections.
 
-A page-change signature is computed from the guide, while the secondary fingerprint uses the corrected page interior image. Both use mean-centered grayscale thumbnails. The machine observes turns during the green flash and queue backpressure, so a brief transition can unlock the next similarly laid-out page. Quality and anchored geometry/content stability still apply before acceptance. See `config/scanner.ts` for all primary tuning values.
+Live analysis uses Canny contours and a four-corner approximation, with a convex-hull/relaxed approximation fallback for modest gutter or finger irregularity. Wide candidates and equally plausible distinct pages prompt centering one page. Normalized corners map directly into an SVG sharing the video's contain fit. The fixed guide becomes quiet once a strong page outline appears. A 480px perspective-normalized grayscale preview uses adaptive thresholding and horizontal morphology to identify line-like components; `textBody.ts` merges nearby lines into one main region. Its corners map back through the inverse perspective transform. This is a visual estimate, not live OCR or semantic layout understanding. A missing body never disqualifies a page.
+
+`AutoScanMachine` requires 750 ms of stable corners, area, guide content, and text-body position when available, plus alignment/sharpness/brightness. Accepted geometry is frozen for a 500 ms regional green flash with a checkmark and status text. A separate timer expires feedback even when preview sampling is paused. OCR starts in the background immediately after reservation; its completion does not control the flash or page numbering.
+
+Two protections remain separate. The held-page lock compares normalized page content using mean-centered grayscale, edge difference, a 64-bit difference hash, and a 4x6 ink-density grid. Two changed signals in two consecutive samples rearm scanning; normalized content avoids mistaking phone translation for a new page. If the page is absent, the existing guide signature observes a physical turn. Turns are observed even during the flash or queue backpressure. Rearming still requires a new stability window.
+
+Before acceptance, the worker compares the corrected page with the last eight accepted fingerprints. All four strict visual thresholds must agree, or relaxed visual gates must agree with spatially consistent ORB matches. ORB evidence can veto similar low-resolution layouts. Missing/insufficient features fall back to strict signatures; blank/ambiguous evidence is accepted rather than aggressively merging pages. A duplicate never enters the OCR queue or consumes a page number. The explicit amber `duplicate` state locks that content and displays ?Already scanned. Turn to the next page.? Notifications have a 1600 ms cooldown; debug counters track accepted notices. This is conservative visual matching, not proof of page identity; genuinely near-identical editions, occlusion, and curved content still need phone testing.
+
+The existing bundle supports ORB at runtime. Only full-resolution capture processing computes features, on a separate image capped at 640px, limited to 80 keypoints and 32 bytes per descriptor. Mutual nearest Hamming matches use a ratio test, a distance limit, normalized position tolerance, at least 18 matches, and coverage across three quadrants. The installed declarations omit `setMaxFeatures`; a narrow local type documents the runtime method tested in the browser. Feature unavailability/failure leaves compact matching usable. There are no new dependencies, preview feature extraction, preview network calls, or preview OCR. See [OpenCV ORB documentation](https://docs.opencv.org/4.x/d1/d89/tutorial_py_orb.html).
+
+Pinia retains a 40x56 gray signature, 40x56 edges, 16-character hash, 24 density cells, and optional bounded ORB descriptors only for the recent eight pages. Older page text/provider/paragraph metadata remains while fingerprints are released. No camera image is saved for matching. The legacy gray field shares the same array with structured fingerprint metadata. Worker comparisons receive plain, unproxied metadata through structured cloning. Mat/descriptor/keypoint objects are deleted in finally blocks, bitmaps are closed, and Stop/unmount release analysis state. See [thresholds, test evidence, and phone checklist](scanner-recognition-verification.md).
 
 `provideOcrQueue()` runs in App so navigation does not discard pending OCR. `services/ocrQueue.ts` owns temporary Blobs outside Pinia, runs one OCR job by default (configurable to two in `config/ocr.ts`), and limits retained failed images to 2 / 12 MiB. Numbers/UUIDs are assigned before OCR starts; results update by UUID rather than completion order. Retry preserves position; deleted pages ignore late results. Reset invalidates work, releases images and terminates OCR. Done stops new acceptance, drains work and releases both workers; unmounting App also disposes the queue. Ordinary navigation away from Scan stops camera/CV while accepted OCR jobs continue. Images become unreachable after successful OCR; actual heap reclamation is browser-managed. OpenCV's allocated WASM heap can remain at its high-water mark until worker termination.
 

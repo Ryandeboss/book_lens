@@ -1,3 +1,4 @@
+import type { PageFingerprint } from '../types/scanner';
 import { ocrConfig } from '../config/ocr';
 import { computed, ref } from 'vue';
 import { scannerConfig as config } from '../config/scanner';
@@ -89,13 +90,17 @@ export function createOcrQueue(
     pendingBytes.value += blob.size;
     void pump();
   }
-  function enqueue(blob: Blob, fingerprint: number[]) {
+  function enqueue(
+    blob: Blob,
+    fingerprint: number[],
+    visualFingerprint?: PageFingerprint,
+  ) {
     if (
       !hasCapacity.value ||
       pendingBytes.value + blob.size > config.maxPendingBytes
     )
       return null;
-    const id = session.reservePage(fingerprint);
+    const id = session.reservePage(fingerprint, visualFingerprint);
     submit(id, blob);
     return id;
   }

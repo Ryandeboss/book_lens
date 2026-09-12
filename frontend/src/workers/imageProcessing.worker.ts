@@ -18,7 +18,7 @@ self.onmessage = async (event: MessageEvent<VisionRequest>) => {
     const result =
       event.data.type === 'analyze'
         ? analyzePage(cv, bitmap)
-        : await preparePage(cv, bitmap, event.data.corners);
+        : await preparePage(cv, bitmap, event.data.corners, event.data.recent);
     self.postMessage({ id, result } satisfies VisionResponse);
   } catch {
     self.postMessage({

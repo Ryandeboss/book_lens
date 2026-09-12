@@ -141,12 +141,21 @@ describe('continuous scan screen', () => {
     });
     await button('Manual Capture').trigger('click');
     await flushPromises();
-    expect(vision.process).toHaveBeenCalledWith(expect.anything(), null);
+    expect(vision.process).toHaveBeenCalledWith(expect.anything(), null, []);
+    expect(wrapper.find('.accepted-region').exists()).toBe(true);
     expect(useScanStore().pages).toHaveLength(1);
+    vision.process.mockResolvedValueOnce({
+      blob: new Blob(['duplicate']),
+      fingerprint: [0.1, -0.1],
+      duplicateMatch: { duplicate: true, pageNumber: 1, gray: 0 },
+      width: 800,
+      height: 1100,
+    });
     await button('Manual Capture').trigger('click');
     await flushPromises();
     expect(useScanStore().pages).toHaveLength(1);
-    expect(wrapper.text()).toContain('Duplicate page ignored');
+    expect(engine.recognize).toHaveBeenCalledOnce();
+    expect(wrapper.text()).toContain('Already scanned');
   });
   it('Done stops acceptance and camera immediately, drains OCR, then opens Review', async () => {
     let complete!: (result: OcrResult) => void;
@@ -236,4 +245,44 @@ describe('continuous scan screen', () => {
     await advance(1100);
     expect(useScanStore().pages).toHaveLength(1);
   });
+});
+
+it('freezes the accepted region during green feedback while OCR remains pending', async () => {
+  engine.recognize.mockReturnValue(new Promise(() => {}));
+  const initial = page();
+  initial.textBody = initial.corners;
+  vision.analyze.mockResolvedValue(initial);
+  await ready();
+  await advance(900);
+  expect(wrapper.get('[data-state]').attributes('data-state')).toBe('captured');
+  const shape = wrapper.get('.accepted-region').attributes('points');
+  vision.analyze.mockResolvedValue({
+    ...page(),
+    corners: null,
+    textBody: null,
+  });
+  await advance(170);
+  expect(wrapper.get('.accepted-region').attributes('points')).toBe(shape);
+  expect(useScanStore().pages[0]?.status).toBe('processing');
+  await advance(600);
+  expect(wrapper.find('.accepted-region').exists()).toBe(false);
+});
+it('rejects an older duplicate without consuming a page number, then accepts a distinct page', async () => {
+  await ready();
+  await button('Pause').trigger('click');
+  await button('Manual Capture').trigger('click');
+  await flushPromises();
+  vision.process.mockResolvedValueOnce({
+    blob: new Blob(['duplicate']),
+    fingerprint: [0.1, -0.1],
+    duplicateMatch: { duplicate: true, pageNumber: 1, gray: 0 },
+    width: 800,
+    height: 1100,
+  });
+  await button('Manual Capture').trigger('click');
+  await flushPromises();
+  await button('Manual Capture').trigger('click');
+  await flushPromises();
+  expect(useScanStore().pages.map((p) => p.pageNumber)).toEqual([1, 2]);
+  expect(engine.recognize).toHaveBeenCalledTimes(2);
 });

@@ -1,17 +1,22 @@
-import { computed, onUnmounted, reactive, ref, shallowRef } from 'vue';
+import { computed, onUnmounted, reactive, ref, shallowRef, toRaw } from 'vue';
 import { scannerConfig as config } from '../config/scanner';
 import { AutoScanMachine } from '../services/autoScanMachine';
-import { signatureDifference } from '../services/pageFingerprint';
 import { usePageDetection } from './usePageDetection';
 import { useOcrQueue } from './useOcrQueue';
 import { useScanStore } from '../stores/scan';
-import type { Detection } from '../types/scanner';
+import { guideCorners, guideForFrame } from '../services/scannerGeometry';
+import type { Detection, DuplicateMatch } from '../types/scanner';
 
 export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
   const vision = usePageDetection(),
     queue = useOcrQueue(),
     session = useScanStore();
   const machine = reactive(new AutoScanMachine());
+  const acceptedRegion = shallowRef<Pick<
+    Detection,
+    'corners' | 'textBody'
+  > | null>(null);
+  const duplicateMatch = shallowRef<DuplicateMatch | null>(null);
   const detection = shallowRef<Detection | null>(null);
   const width = ref(1),
     height = ref(1),
@@ -28,6 +33,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
       !busy.value &&
       queue.hasCapacity.value,
   );
+  let feedbackTimer: ReturnType<typeof setTimeout> | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let flight: Promise<void> | null = null;
   let generation = 0,
@@ -96,33 +102,59 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
       const result = await vision.process(
         await snapshot(current),
         detection.value?.corners ?? null,
+        session.pages.slice(-config.recentFingerprints).flatMap((p) =>
+          p.visualFingerprint
+            ? [
+                {
+                  id: p.id,
+                  pageNumber: p.pageNumber,
+                  fingerprint: toRaw(p.visualFingerprint),
+                },
+              ]
+            : [],
+        ),
       );
       if (current !== generation || disposed) return;
-      const previous = session.pages
-        .slice(-config.recentFingerprints)
-        .flatMap((p) => (p.fingerprint ? [p.fingerprint] : []));
-      duplicateScore.value = previous.length
-        ? Math.min(
-            ...previous.map((p) => signatureDifference(p, result.fingerprint)),
-          )
-        : 1;
-      if (duplicateScore.value <= config.duplicateDifference) {
+      duplicateMatch.value = result.duplicateMatch ?? null;
+      duplicateScore.value = result.duplicateMatch?.gray ?? 1;
+      if (result.duplicateMatch?.duplicate) {
         if (!finishing.value)
-          machine.duplicate(detection.value?.signature ?? []);
+          machine.duplicate(
+            detection.value?.signature ?? [],
+            performance.now(),
+            detection.value?.content,
+          );
         return;
       }
-      const id = queue.enqueue(result.blob, result.fingerprint);
+      const id = queue.enqueue(
+        result.blob,
+        result.fingerprint,
+        result.visualFingerprint,
+      );
       if (!id) {
         if (!finishing.value)
           machine.pause('Processing pages... Hold for a moment.');
         return;
       }
-      if (!finishing.value)
+      if (!finishing.value) {
+        acceptedRegion.value = {
+          corners:
+            detection.value?.corners ??
+            guideCorners(guideForFrame(width.value, height.value)),
+          textBody: detection.value?.textBody ?? null,
+        };
         machine.accepted(
           detection.value?.signature ?? [],
           performance.now(),
-          `✓ Page ${session.pages.find((p) => p.id === id)!.pageNumber} captured`,
+          `\u2713 Page ${session.pages.find((p) => p.id === id)!.pageNumber} scanned - Turn the page`,
+          detection.value?.content,
         );
+        clearTimeout(feedbackTimer);
+        feedbackTimer = setTimeout(
+          () => machine.endFlash(performance.now()),
+          config.flashMs + 10,
+        );
+      }
     } catch {
       if (current === generation && !disposed && !finishing.value)
         machine.fail(
@@ -237,6 +269,9 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
     if (!disposed) await queue.releaseWorker();
   }
   function stop() {
+    clearTimeout(feedbackTimer);
+    acceptedRegion.value = null;
+    duplicateMatch.value = null;
     generation++;
     flight = null;
     running.value = false;
@@ -261,6 +296,8 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
   });
   return {
     machine,
+    acceptedRegion,
+    duplicateMatch,
     detection,
     width,
     height,

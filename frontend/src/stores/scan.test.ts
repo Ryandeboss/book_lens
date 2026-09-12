@@ -1,3 +1,5 @@
+import { visualSignature } from '../services/pageFingerprint';
+import { scannerConfig } from '../config/scanner';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useScanStore } from './scan';
@@ -40,4 +42,31 @@ describe('scan session', () => {
     expect(store.currentPageNumber).toBe(1);
     expect(store.combinedText).toBe('');
   });
+});
+
+it('bounds fingerprint history and releases it on clear without removing older OCR', () => {
+  const store = useScanStore();
+  for (let i = 0; i < 20; i++) {
+    const fingerprint = visualSignature(Array(40 * 56).fill(i), 40, 56);
+    const id = store.reservePage(fingerprint.gray, {
+      ...fingerprint,
+      features: {
+        points: [{ x: 0.5, y: 0.5 }],
+        descriptors: new Uint8Array(32),
+      },
+    });
+    store.completePage(id, {
+      rawText: 'Page ' + i,
+      ocrProvider: 'google-document-ai',
+    });
+  }
+  expect(store.pages.filter((p) => p.visualFingerprint)).toHaveLength(
+    scannerConfig.recentFingerprints,
+  );
+  expect(store.pages.filter((p) => p.fingerprint)).toHaveLength(
+    scannerConfig.recentFingerprints,
+  );
+  expect(store.pages[0]?.rawText).toBe('Page 0');
+  store.clearSession();
+  expect(store.pages).toEqual([]);
 });

@@ -30,6 +30,7 @@ const scanner = useAutoScan(() => preview.value?.getVideo() ?? null);
 const {
   machine,
   detection,
+  acceptedRegion,
   width,
   height,
   running,
@@ -116,7 +117,14 @@ watch(isActive, (value) => {
           :width="width"
           :height="height"
           :state="machine.state"
-          :corners="detection?.corners ?? null"
+          :corners="
+            (machine.state === 'captured' ? acceptedRegion : detection)
+              ?.corners ?? null
+          "
+          :text-body="
+            (machine.state === 'captured' ? acceptedRegion : detection)
+              ?.textBody ?? null
+          "
         />
       </CameraPreview>
       <p class="scanner-status" role="status" :data-state="machine.state">
@@ -168,6 +176,11 @@ watch(isActive, (value) => {
               state: machine.state,
               corners: detection?.corners,
               alignment: detection?.alignment,
+              textBody: detection?.textBody,
+              confidence: detection?.confidence,
+              approximateBoundary: detection?.approximate,
+              closestPage: scanner.duplicateMatch.value,
+              duplicateNotifications: machine.duplicateNotifications,
               sharpness: detection?.sharpness,
               brightness: detection?.brightness,
               stability: machine.stableProgress,
@@ -226,6 +239,12 @@ h1 {
   text-align: center;
   min-height: 2em;
   margin: 12px 4px;
+}
+.scanner-status[data-state='duplicate'] {
+  color: #ffd16a;
+}
+.scanner-status[data-state='captured'] {
+  color: #59f59d;
 }
 .counts {
   text-align: center;

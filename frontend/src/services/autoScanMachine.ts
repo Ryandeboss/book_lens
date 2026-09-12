@@ -1,13 +1,22 @@
 import { scannerConfig as config } from '../config/scanner';
-import { cornerDistance } from './scannerGeometry';
-import { signatureDifference } from './pageFingerprint';
-import type { AutoScanState, Detection, Quad } from '../types/scanner';
+import { polygonArea, cornerDistance } from './scannerGeometry';
+import { signatureDifference, contentChanged } from './pageFingerprint';
+import type {
+  AutoScanState,
+  Detection,
+  Quad,
+  VisualSignature,
+} from '../types/scanner';
 
 export class AutoScanMachine {
   state: AutoScanState = 'searching';
   message = 'Position page inside frame';
   changeScore = 0;
   stableProgress = 0;
+  private bodyAnchor: Quad | null = null;
+  private lockedContent: VisualSignature | undefined;
+  private duplicateAt = -Infinity;
+  duplicateNotifications = 0;
   private anchor: Quad | null = null;
   private stableSignature: number[] = [];
   private stableSince = 0;
@@ -35,7 +44,13 @@ export class AutoScanMachine {
     this.state = 'error';
     this.message = message;
   }
-  accepted(signature: number[], now: number, label: string) {
+  accepted(
+    signature: number[],
+    now: number,
+    label: string,
+    content?: VisualSignature,
+  ) {
+    this.lockedContent = content;
     this.lockedSignature = [...signature];
     this.changeSamples = 0;
     this.flashUntil = now + config.flashMs;
@@ -43,11 +58,26 @@ export class AutoScanMachine {
     this.message = label;
     this.resetStability();
   }
-  duplicate(signature: number[]) {
+  endFlash(now: number) {
+    if (this.state === 'captured' && now >= this.flashUntil) {
+      this.state = 'waitingForPageChange';
+      this.message = 'Turn to the next page';
+    }
+  }
+  duplicate(
+    signature: number[],
+    now = performance.now(),
+    content?: VisualSignature,
+  ) {
     this.lockedSignature = [...signature];
+    this.lockedContent = content;
     this.changeSamples = 0;
-    this.state = 'waitingForPageChange';
-    this.message = 'Duplicate page ignored. Turn to the next page.';
+    this.state = 'duplicate';
+    this.message = 'Already scanned. Turn to the next page.';
+    if (now - this.duplicateAt >= config.duplicateMessageCooldownMs) {
+      this.duplicateAt = now;
+      this.duplicateNotifications++;
+    }
     this.resetStability();
   }
   sample(d: Detection, now: number, blocked = false): boolean {
@@ -66,11 +96,17 @@ export class AutoScanMachine {
     // Observe turns even during the green flash or OCR backpressure. Otherwise
     // an immediate turn to a similar-looking page can be missed entirely.
     if (this.lockedSignature) {
-      this.changeScore = signatureDifference(d.signature, this.lockedSignature);
-      this.changeSamples =
-        this.changeScore >= config.pageChangeDifference
-          ? this.changeSamples + 1
-          : 0;
+      const content =
+        this.lockedContent && d.content
+          ? contentChanged(d.content, this.lockedContent)
+          : null;
+      this.changeScore = content
+        ? content.score
+        : signatureDifference(d.signature, this.lockedSignature);
+      const changed = content
+        ? content.changed
+        : this.changeScore >= config.pageChangeDifference;
+      this.changeSamples = changed ? this.changeSamples + 1 : 0;
       if (this.changeSamples >= config.pageChangeSamples) {
         this.lockedSignature = null;
         this.resetStability();
@@ -82,6 +118,7 @@ export class AutoScanMachine {
       return false;
     }
     if (this.lockedSignature) {
+      if (this.state === 'duplicate') return false;
       if (this.state !== 'waitingForPageChange')
         this.message = 'Turn to the next page';
       this.state = 'waitingForPageChange';
@@ -89,13 +126,19 @@ export class AutoScanMachine {
     }
     if (!d.corners) {
       this.state = 'searching';
-      this.message = 'Position page inside frame';
+      this.message =
+        d.hint === 'centerOnePage'
+          ? 'Center one page in the frame'
+          : 'Position page inside frame';
       this.resetStability();
       return false;
     }
     if (!d.aligned) {
       this.state = 'detected';
-      this.message = 'Align page';
+      this.message =
+        d.hint === 'moveCloser'
+          ? 'Move closer to the page'
+          : 'Fit the page inside the frame';
       this.resetStability();
       return false;
     }
@@ -116,10 +159,18 @@ export class AutoScanMachine {
     if (
       !this.anchor ||
       cornerDistance(d.corners, this.anchor) > config.cornerMovement ||
+      Math.abs(polygonArea(d.corners) - polygonArea(this.anchor)) /
+        Math.max(0.001, polygonArea(this.anchor)) >
+        config.pageAreaMovement ||
+      (d.textBody &&
+        this.bodyAnchor &&
+        cornerDistance(d.textBody, this.bodyAnchor) >
+          config.textBodyMovement) ||
       signatureDifference(d.signature, this.stableSignature) >
         config.stableVisualDifference
     ) {
       this.anchor = d.corners;
+      this.bodyAnchor = d.textBody ?? null;
       this.stableSignature = d.signature;
       this.stableSince = now;
       this.stableProgress = 0;

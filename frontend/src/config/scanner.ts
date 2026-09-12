@@ -6,7 +6,6 @@ export const scannerConfig = {
   guideCoverage: 0.84,
   minPageArea: 0.12, // Fraction of camera frame.
   minAspect: 0.4,
-  maxAspect: 1.4,
   edgeMargin: 0.012, // Reject clipped corners.
   alignmentTolerance: 0.16, // Relative to guide dimensions.
   minGuideCoverage: 0.58,
@@ -19,7 +18,7 @@ export const scannerConfig = {
   pageChangeDifference: 0.1,
   pageChangeSamples: 2,
   duplicateDifference: 0.009, // Very conservative normalized content fingerprint distance.
-  recentFingerprints: 4,
+  recentFingerprints: 8,
   fingerprintWidth: 40,
   fingerprintHeight: 56,
   flashMs: 500,
@@ -36,6 +35,40 @@ export const scannerConfig = {
   cannyLow: 50,
   cannyHigh: 150,
   contourEpsilon: 0.025,
+  contourRelaxedEpsilon: 0.045, // Allow mild gutter/finger irregularities via convex hull.
+  singlePageMaxAspect: 1.12, // Wider candidates prompt centering one page.
+  candidateAmbiguity: 0.12,
+  textPreviewMaxEdge: 480,
+  textThresholdBlock: 31,
+  textThresholdOffset: 12,
+  textLineKernelWidth: 9,
+  textLineMinWidth: 0.06,
+  textLineMaxHeight: 0.09,
+  textLineMergeGap: 0.065,
+  textBodyMinArea: 0.008, // Sparse headings remain eligible; body is optional.
+  textBodyMargin: 0.015,
+  textBodyMovement: 0.025,
+  pageAreaMovement: 0.1,
+  pageChangeGray: 0.015,
+  pageChangeEdges: 0.015,
+  pageChangeHash: 0.16,
+  pageChangeDensity: 0.035,
+  duplicateHash: 0.065,
+  duplicateEdges: 0.022,
+  duplicateDensity: 0.025,
+  duplicateMessageCooldownMs: 1600,
+  orbEnabled: true, // Runtime-probed; failure falls back to compact signatures.
+  orbMaxFeatures: 80,
+  orbMaxEdge: 640,
+  orbMinMatches: 18,
+  orbMatchRatio: 0.7,
+  orbMaxHamming: 40,
+  orbPositionTolerance: 0.045,
+  orbDuplicateScore: 0.35,
+  orbGrayGate: 0.025,
+  orbHashGate: 0.18,
+  orbEdgeGate: 0.035,
+  orbDensityGate: 0.04,
 } as const;
 export const scannerDebug =
   import.meta.env.DEV && import.meta.env.VITE_SCANNER_DEBUG === 'true';
