@@ -42,7 +42,6 @@ export interface Detection {
   analysisHeight?: number;
   source?: 'page' | 'text';
   captureCorners?: Quad;
-  marginInk?: number;
   corners: Quad | null;
   aligned: boolean;
   alignment: number;
@@ -53,7 +52,7 @@ export interface Detection {
   textBody?: Quad | null;
   confidence?: number;
   approximate?: boolean;
-  hint?: 'moveCloser' | 'fitPage' | 'centerOnePage' | 'clearMargin';
+  hint?: 'moveCloser' | 'fitPage' | 'centerOnePage' | 'textRequired';
 }
 export type AutoScanState =
   | 'searching'

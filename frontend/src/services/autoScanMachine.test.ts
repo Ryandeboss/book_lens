@@ -150,7 +150,7 @@ it('expires feedback without another camera frame and throttles duplicate notifi
   expect(machine.state).toBe('duplicate');
 });
 
-it('captures stable text without a page boundary and requires three samples even on a slow phone', () => {
+it('captures stable text without a page boundary and requires two samples on a slow phone', () => {
   const machine = new AutoScanMachine();
   const d: Detection = {
     ...page(),
@@ -159,8 +159,7 @@ it('captures stable text without a page boundary and requires three samples even
     textBody: page().corners,
   };
   expect(machine.sample(d, 0)).toBe(false);
-  expect(machine.sample(d, 850)).toBe(false);
-  expect(machine.sample(d, 1700)).toBe(true);
+  expect(machine.sample(d, 850)).toBe(true);
 });
 it('uses normalized content for stability rather than resetting for small camera translation', () => {
   const machine = new AutoScanMachine();
@@ -215,14 +214,14 @@ it('waits for text focus and lighting, then captures without any page boundary',
     source: 'text',
     corners: null,
     textBody: page().corners,
-    hint: 'clearMargin',
+    hint: 'textRequired',
   };
   machine.sample({ ...d, brightness: 40 }, 0);
   expect(machine.message).toContain('light');
   machine.sample({ ...d, sharpness: 2 }, 170);
   expect(machine.message).toContain('blurry');
   machine.sample({ ...d, aligned: false }, 340);
-  expect(machine.message).toContain('margin');
+  expect(machine.message).toContain('printed text');
   let captured = false;
   for (let t = 510; t < 1300; t += 170)
     captured = machine.sample(d, t) || captured;
@@ -254,7 +253,21 @@ it('resets the consecutive window on motion even with apparently perfect corners
   expect(machine.stableSamples).toBe(0);
   expect(machine.sample(page(), 510)).toBe(false);
   expect(machine.sample(page(), 680)).toBe(false);
-  expect(machine.sample(page(), 850)).toBe(false);
-  expect(machine.sample(page(), 1020)).toBe(true);
+  expect(machine.sample(page(), 850)).toBe(true);
+  expect(machine.sample(page(), 1020)).toBe(false);
   expect(machine.sample(page(), 1190)).toBe(false);
+});
+
+it('accepts a shorter steady hold with mild position drift', () => {
+  const machine = new AutoScanMachine();
+  expect(machine.sample(page(), 0)).toBe(false);
+  const shifted = {
+    ...page(),
+    corners: page().corners!.map((p) => ({
+      ...p,
+      x: p.x + 0.03,
+    })) as Detection['corners'],
+  };
+  expect(machine.sample(shifted, 170)).toBe(false);
+  expect(machine.sample(shifted, 340)).toBe(true);
 });

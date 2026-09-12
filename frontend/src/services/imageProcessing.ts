@@ -20,11 +20,7 @@ import {
 } from './scannerGeometry';
 import { FrameMotion } from './frameMotion';
 import { visualSignature, findRecentDuplicate } from './pageFingerprint';
-import {
-  estimateTextBody,
-  canCaptureTextBody,
-  textMarginInk,
-} from './textBody';
+import { estimateTextBody, canCaptureTextBody } from './textBody';
 type OpenCv = typeof CV;
 
 function signature(cv: OpenCv, gray: CV.Mat) {
@@ -278,7 +274,7 @@ export function analyzePage(
       approximate,
       analysisWidth: src.cols,
       analysisHeight: src.rows,
-      hint: ambiguous || wide ? 'centerOnePage' : 'clearMargin',
+      hint: ambiguous || wide ? 'centerOnePage' : 'textRequired',
     };
     if (
       motion &&
@@ -325,17 +321,11 @@ export function analyzePage(
       cv.RETR_LIST,
       cv.CHAIN_APPROX_SIMPLE,
     );
-    // Exclude enclosing paper/background contours from the whitespace test,
-    // while retaining text and local illustrations/marks. Otherwise a tilted
-    // paper edge crossing the axis-aligned text bounds looks like printed ink.
-    const marginMask = own(cv.Mat.zeros(h, w, cv.CV_8UC1));
     const boxes = [];
     for (let i = 0; i < lines.size(); i++) {
       const line = lines.get(i);
       try {
         const r = cv.boundingRect(line);
-        if (!(r.width > w * 0.4 && r.height > h * 0.4))
-          cv.drawContours(marginMask, lines, i, new cv.Scalar(255), cv.FILLED);
         boxes.push({
           x: r.x / w,
           y: r.y / h,
@@ -347,9 +337,7 @@ export function analyzePage(
       }
     }
     const body = estimateTextBody(boxes);
-    const marginInk = body ? textMarginInk(marginMask.data, w, h, body) : 1;
-    const textCapture =
-      canCaptureTextBody(boxes, body) && marginInk <= config.textMarginMaxInk;
+    const textCapture = canCaptureTextBody(boxes, body);
     const m = inverse.data64F;
     const textBody: Quad | null = body
       ? (guideCorners(body).map((p) => {
@@ -366,7 +354,6 @@ export function analyzePage(
     return {
       ...base,
       textBody,
-      marginInk,
       aligned,
       alignment: aligned ? 1 : base.alignment,
       textPresent: textCapture,

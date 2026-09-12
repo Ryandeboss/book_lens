@@ -177,8 +177,8 @@ export class AutoScanMachine {
       this.message =
         d.hint === 'moveCloser'
           ? 'Move closer to the page'
-          : d.hint === 'clearMargin'
-            ? 'Leave a clear margin around the text'
+          : d.hint === 'textRequired'
+            ? 'Point the camera at printed text'
             : 'Fit the page inside the frame';
       this.resetStability();
       return false;

@@ -323,7 +323,7 @@ it('automatically scans text without page edges and shows progress before green 
   vision.analyze.mockResolvedValue(d);
   engine.recognize.mockReturnValue(new Promise(() => {}));
   await ready();
-  await advance(340);
+  await advance(170);
   expect(wrapper.find('.scan-sweep').exists()).toBe(true);
   expect(wrapper.get('progress').attributes('aria-label')).toBe(
     'Automatic capture progress',

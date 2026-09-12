@@ -81,9 +81,8 @@ watch(isActive, (value) => {
       <p class="eyebrow">01 / SCAN</p>
       <h1>Turn pages. Keep the words.</h1>
       <p>
-        Show one page with a clear margin around its text. Capture happens
-        automatically. After the green check, turn to the next page. Text is
-        read in the background.
+        Show one page and hold briefly. Capture happens automatically. After the
+        green check, turn to the next page. Text is read in the background.
       </p>
       <p class="scan-hint">
         Page images are sent to our server and Google for OCR, without BookLens
@@ -143,7 +142,7 @@ watch(isActive, (value) => {
         v-if="machine.state === 'searching' || machine.state === 'detected'"
         class="scan-hint"
       >
-        Show one page with clear space around its text. Capture is automatic.
+        Show one page and hold briefly. Capture is automatic.
       </p>
       <p class="counts">
         {{ session.pages.length }} captured · {{ processed }} processed<span
@@ -205,7 +204,6 @@ watch(isActive, (value) => {
               stableDurationMs: machine.stableDuration,
               queueLength: pending,
               detectionSource: detection?.source,
-              marginInk: detection?.marginInk,
               corners: detection?.corners,
               alignment: detection?.alignment,
               textBody: detection?.textBody,

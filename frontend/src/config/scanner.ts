@@ -3,7 +3,7 @@ export const scannerConfig = {
   analysisIntervalMs: 170, // At most ~6 checks/sec; only one analysis job in flight.
   analysisMaxEdge: 640,
   motionSize: 64, // Tiny grayscale ROI; higher sizes cost more per tick.
-  motionDifference: 0.022, // Exposure-centered mean absolute difference / 255.
+  motionDifference: 0.035, // Exposure-centered mean absolute difference / 255.
   stillTimeoutMs: 1800, // One native shutter attempt, then video fallback.
   pageOppositeEdgeRatio: 0.45, // Reject extreme perspective; allow book curl.
   statusHoldMs: 220, // Debounce ordinary guidance, never success/errors.
@@ -14,11 +14,11 @@ export const scannerConfig = {
   edgeMargin: 0.012, // Reject clipped corners.
   alignmentTolerance: 0.16, // Relative to guide dimensions.
   minGuideCoverage: 0.58,
-  stabilityMs: 450,
-  stabilityMinSamples: 3,
+  stabilityMs: 300,
+  stabilityMinSamples: 2,
   maxSampleGapMs: 1500,
-  cornerMovement: 0.025, // Distance in normalized frame coordinates, from stability anchor.
-  stableVisualDifference: 0.045,
+  cornerMovement: 0.04, // Distance in normalized frame coordinates, from stability anchor.
+  stableVisualDifference: 0.06,
   minSharpness: 35, // Variance of Laplacian in the page interior at analysis size.
   minBrightness: 90, // 0..255.
   pageChangeDifference: 0.1,
@@ -54,14 +54,11 @@ export const scannerConfig = {
   textCaptureMinLines: 3,
   textCaptureMinWidth: 0.25,
   textCaptureMinHeight: 0.12,
-  textCaptureMargin: 0.025,
-  textClearMargin: 0.015,
-  textMarginMaxInk: 0.08,
   textBodyMinArea: 0.008, // Sparse headings remain eligible; body is optional.
   textBodyMargin: 0.015,
-  textBodyMovement: 0.04,
-  textCenterMovement: 0.015,
-  pageAreaMovement: 0.1,
+  textBodyMovement: 0.06,
+  textCenterMovement: 0.025,
+  pageAreaMovement: 0.15,
   pageChangeGray: 0.015,
   pageChangeEdges: 0.015,
   pageChangeHash: 0.16,

@@ -23,7 +23,7 @@ A mobile-first web application for turning printed pages into editable text. Boo
 
 ## Scan a book
 
-Run `npm.cmd run dev` and open http://localhost:5173/scan. Start Camera, allow access, and hold one page in view. BookLens first checks motion, then finds the page boundary, checks lighting/focus, and looks for printed text. When page edges are unclear, a central region with a clear text block can qualify. A strong page boundary also allows sharp title pages and illustrated pages. Hold steady for about half a second; the outlined region flashes green when the picture is accepted, then turn the page immediately.
+Run `npm.cmd run dev` and open http://localhost:5173/scan. Start Camera, allow access, and hold one page in view. BookLens first checks motion, then finds the page boundary, checks lighting/focus, and looks for printed text. When page edges are unclear, a central region with a visible text block can qualify, without a clear-margin requirement. A strong page boundary also allows sharp title pages and illustrated pages. Hold briefly for about a third of a second; the outlined region flashes green when the picture is accepted, then turn the page immediately.
 
 The sweep/progress display reflects capture readiness, not completion of Google OCR. The detected page is perspective-corrected, including headings and footnotes. Without reliable page corners, the full visible photograph is retained. Native still-photo capture is preferred where supported; otherwise BookLens captures the actual video resolution. The browser preview runs independently of analysis (at most about six checks/second). Holding the same page does not scan it twice. Recent-page matching uses compact content fingerprints and optional ORB features, without retaining full photos.
 
