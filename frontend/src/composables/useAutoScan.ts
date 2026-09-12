@@ -1,12 +1,4 @@
-import {
-  computed,
-  onUnmounted,
-  reactive,
-  ref,
-  shallowRef,
-  toRaw,
-  watch,
-} from 'vue';
+import { computed, onUnmounted, reactive, ref, shallowRef, watch } from 'vue';
 import { scannerConfig as config } from '../config/scanner';
 import { AutoScanMachine } from '../services/autoScanMachine';
 import { usePageDetection } from './usePageDetection';
@@ -97,6 +89,11 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
     )
       return;
     const video = getVideo();
+    const cooldown = machine.captureAfter - performance.now();
+    if (cooldown > 0) {
+      timer = setTimeout(schedule, cooldown);
+      return;
+    }
     if (video?.requestVideoFrameCallback) {
       callbackVideo = video;
       videoCallback = video.requestVideoFrameCallback((now) => {
@@ -176,7 +173,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
     busy.value = true;
     const current = generation;
     machine.state = 'capturing';
-    machine.message = 'Scanning page... Keep still';
+    machine.message = 'Taking photo... Keep still';
     try {
       // Manual capture can follow a pause or repositioning; refresh the geometry.
       if (manual) {
@@ -245,32 +242,12 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
       const result = await vision.process(
         fullFrame,
         captureDetection?.captureCorners ?? captureDetection?.corners ?? null,
-        session.pages.slice(-config.recentFingerprints).flatMap((p) =>
-          p.visualFingerprint
-            ? [
-                {
-                  id: p.id,
-                  pageNumber: p.pageNumber,
-                  fingerprint: toRaw(p.visualFingerprint),
-                },
-              ]
-            : [],
-        ),
+        [], // Compare OCR text later; never silently discard a saved shot.
         captureDetection?.textBody ?? null,
       );
       if (current !== generation || disposed) return;
       duplicateMatch.value = result.duplicateMatch ?? null;
       duplicateScore.value = result.duplicateMatch?.gray ?? 1;
-      if (result.duplicateMatch?.duplicate) {
-        if (!finishing.value)
-          machine.duplicate(
-            detection.value?.signature ?? [],
-            performance.now(),
-            detection.value?.content,
-            detection.value?.source,
-          );
-        return;
-      }
       const id = queue.enqueue(
         result.blob,
         result.fingerprint,
@@ -290,12 +267,9 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
               guideCorners(guideForFrame(width.value, height.value))),
           textBody: detection.value?.textBody ?? null,
         };
-        machine.accepted(
-          detection.value?.signature ?? [],
+        machine.savedShot(
           performance.now(),
-          `\u2713 Page ${session.pages.find((p) => p.id === id)!.pageNumber} scanned - Turn the page`,
-          detection.value?.content,
-          detection.value?.source,
+          `\u2713 Shot ${session.pages.find((p) => p.id === id)!.capturePosition} saved — turn the page`,
         );
         clearTimeout(feedbackTimer);
         feedbackTimer = setTimeout(

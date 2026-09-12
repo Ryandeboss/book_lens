@@ -13,6 +13,12 @@ export interface CloudOcrResult {
 export interface ScannedPage {
   id: string;
   pageNumber: number;
+  capturePosition?: number;
+  correctedText?: string;
+  cleanupStatus?: 'applied' | 'unavailable' | 'failed' | 'disabled';
+  duplicateOf?: string;
+  duplicateScore?: number;
+  keepDuplicate?: boolean;
   rawText: string;
   editedText: string;
   confidence?: number;
@@ -26,6 +32,8 @@ export interface ScannedPage {
 }
 export interface OcrResult {
   rawText: string;
+  correctedText?: string;
+  cleanupStatus?: ScannedPage['cleanupStatus'];
   confidence?: number;
   ocrProvider?: OcrProvider;
   paragraphs?: OcrParagraph[];

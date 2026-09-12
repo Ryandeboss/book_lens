@@ -259,7 +259,7 @@ export function analyzePage(
     const sharpness = deviation.data64F[0]! ** 2;
     const brightness = cv.mean(roi)[0]!;
     const base: Detection = {
-      source: boundaryAligned ? 'page' : 'text',
+      source: boundaryAligned ? 'page' : 'guide',
       corners: boundaryAligned ? best : null,
       captureCorners: boundaryAligned
         ? best!
@@ -276,17 +276,15 @@ export function analyzePage(
       analysisHeight: src.rows,
       hint: ambiguous || wide ? 'centerOnePage' : 'textRequired',
     };
+    // Without paper edges, sample the central page area rather than diluting
+    // text motion with the blank background surrounding the book.
+    const motionRegion = boundaryAligned ? best! : guideCorners(guide);
     if (
       motion &&
-      boundaryAligned &&
       (!motion.roi ||
-        cornerDistance(motion.roi, best!) > config.textBodyMovement)
+        cornerDistance(motion.roi, motionRegion) > config.textBodyMovement)
     ) {
-      motion.roi = best;
-      motion.previous = null;
-    }
-    if (motion && !boundaryAligned && motion.roi) {
-      motion.roi = null;
+      motion.roi = motionRegion;
       motion.previous = null;
     }
     if (ambiguous || (wide && !boundaryAligned))
@@ -350,7 +348,9 @@ export function analyzePage(
           };
         }) as Quad)
       : null;
-    const aligned = boundaryAligned || (textCapture && !ambiguous && !wide);
+    // Photo-first capture: focus, light and motion decide readiness. Text boxes
+    // are optional overlay hints; OCR starts only after a photo has been saved.
+    const aligned = boundaryAligned || (!ambiguous && !wide);
     return {
       ...base,
       textBody,

@@ -6,6 +6,35 @@ const apiUrl = (
   import.meta.env.VITE_API_URL || 'http://localhost:3000/api'
 ).replace(/\/$/, '');
 
+export type CleanupResult =
+  { status: 'applied'; correctedText: string } | { status: 'unavailable' };
+export async function proofreadPage(
+  text: string,
+  pageId: string,
+  signal: AbortSignal,
+): Promise<CleanupResult> {
+  const response = await fetch(`${apiUrl}/proofread`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, pageId }),
+    signal,
+  });
+  if (!response.ok) throw new Error('Text cleanup unavailable');
+  const data: unknown = await response.json();
+  if (data && typeof data === 'object' && 'status' in data) {
+    if (data.status === 'unavailable') return { status: 'unavailable' };
+    if (
+      data.status === 'applied' &&
+      'correctedText' in data &&
+      typeof data.correctedText === 'string' &&
+      data.correctedText.trim() &&
+      data.correctedText.length <= 30000
+    )
+      return { status: 'applied', correctedText: data.correctedText };
+  }
+  throw new Error('Unexpected text cleanup response');
+}
+
 export async function getHealth(): Promise<HealthResponse> {
   const response = await fetch(`${apiUrl}/health`, {
     signal: AbortSignal.timeout(5000),

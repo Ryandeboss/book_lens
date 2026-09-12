@@ -21,7 +21,10 @@ export const errorHandler: ErrorRequestHandler = (
       .json({ error: 'Invalid image upload.', code: error.code });
     return;
   }
-  if (_req.path.startsWith('/api/ocr')) {
+  if (
+    _req.path.startsWith('/api/ocr') ||
+    _req.path.startsWith('/api/proofread')
+  ) {
     logger.warn('OCR request failed');
     res
       .status(400)

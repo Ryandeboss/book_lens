@@ -10,7 +10,8 @@ import type {
 
 export class AutoScanMachine {
   state: AutoScanState = 'searching';
-  message = 'Point the camera at a block of text';
+  message = 'Center a page and hold steady';
+  captureAfter = 0;
   changeScore = 0;
   stableProgress = 0;
   private bodyAnchor: Quad | null = null;
@@ -69,9 +70,19 @@ export class AutoScanMachine {
   }
   endFlash(now: number) {
     if (this.state === 'captured' && now >= this.flashUntil) {
-      this.state = 'waitingForPageChange';
-      this.message = 'Turn to the next page';
+      this.state =
+        this.captureAfter > now ? 'cooldown' : 'waitingForPageChange';
+      this.message = 'Shot saved. Turn the page; next photo shortly.';
     }
+  }
+  savedShot(now: number, label: string) {
+    this.lockedSignature = null;
+    this.lockedContent = undefined;
+    this.captureAfter = now + config.captureCooldownMs;
+    this.flashUntil = now + config.flashMs;
+    this.state = 'captured';
+    this.message = label;
+    this.resetStability();
   }
   duplicate(
     signature: number[],
@@ -124,6 +135,12 @@ export class AutoScanMachine {
       }
     }
     if (flashing) return false;
+    if (now < this.captureAfter) {
+      this.state = 'cooldown';
+      this.message = 'Shot saved. Turn the page; next photo shortly.';
+      this.resetStability();
+      return false;
+    }
     if (blocked) {
       this.pause('Processing pages... Hold for a moment.');
       return false;
@@ -150,13 +167,14 @@ export class AutoScanMachine {
       this.resetStability();
       return false;
     }
-    const geometry = d.corners ?? (d.source === 'text' ? d.textBody : null);
+    const geometry =
+      d.corners ?? (d.source === 'guide' ? d.captureCorners : d.textBody);
     if (!geometry) {
       this.state = 'searching';
       this.message =
         d.hint === 'centerOnePage'
           ? 'Center one page in the frame'
-          : 'Point the camera at a block of text';
+          : 'Center a page and hold steady';
       this.resetStability();
       return false;
     }
@@ -197,7 +215,7 @@ export class AutoScanMachine {
       ) > config.textCenterMovement;
     this.previousGeometry = geometry;
     this.state = 'stabilizing';
-    this.message = 'Hold steady - scanning automatically...';
+    this.message = 'Hold steady — saving a clear photo...';
     if (
       moving ||
       !this.anchor ||
@@ -208,7 +226,8 @@ export class AutoScanMachine {
       Math.abs(polygonArea(geometry) - polygonArea(this.anchor)) /
         Math.max(0.001, polygonArea(this.anchor)) >
         config.pageAreaMovement ||
-      (d.textBody &&
+      (d.source === 'text' &&
+        d.textBody &&
         this.bodyAnchor &&
         cornerDistance(d.textBody, this.bodyAnchor) >
           config.textBodyMovement) ||
@@ -236,7 +255,7 @@ export class AutoScanMachine {
     );
     if (this.stableProgress < 1) return false;
     this.state = 'capturing';
-    this.message = 'Scanning page... Keep still';
+    this.message = 'Taking photo... Keep still';
     return true;
   }
 }

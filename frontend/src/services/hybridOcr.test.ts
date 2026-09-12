@@ -87,7 +87,7 @@ it('two cloud jobs finishing out of order still preserve capture order and capac
   queue.enqueue(new Blob(['2']), []);
   queue.enqueue(new Blob(['3']), []);
   expect(cloud).toHaveBeenCalledTimes(2);
-  expect(queue.hasCapacity.value).toBe(false);
+  expect(queue.hasCapacity.value).toBe(true); // Photo backlog can grow while two jobs run.
   finish[1]!(result('second'));
   await flushPromises();
   expect(cloud).toHaveBeenCalledTimes(3);

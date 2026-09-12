@@ -10,6 +10,62 @@ import { createOcrQueue } from '../services/ocrQueue';
 
 vi.mock('../services/downloadText', () => ({ downloadText: vi.fn() }));
 afterEach(() => vi.restoreAllMocks());
+it('restores a duplicate at its original position and can undo AI cleanup before TXT export', async () => {
+  const pinia = createPinia();
+  setActivePinia(pinia);
+  const store = useScanStore();
+  const raw =
+    'A long printed page with enough words to compare safely. '.repeat(10);
+  const first = store.reservePage([]),
+    second = store.reservePage([]);
+  store.completePage(first, {
+    rawText: raw,
+    correctedText: 'Cleaned first page',
+    cleanupStatus: 'applied',
+  });
+  store.completePage(second, {
+    rawText: raw,
+    correctedText: 'Cleaned duplicate',
+    cleanupStatus: 'applied',
+  });
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/review', component: ReviewView }],
+  });
+  await router.push('/review');
+  const queue = createOcrQueue(store, {
+    recognize: vi.fn(),
+    terminate: vi.fn(async () => {}),
+  });
+  const wrapper = mount(ReviewView, {
+    global: {
+      plugins: [pinia, router],
+      provide: { [ocrQueueKey as symbol]: queue },
+    },
+  });
+  expect(wrapper.findAll('textarea')).toHaveLength(1);
+  expect(wrapper.text()).toContain('Matches original shot 1');
+  const click = async (text: string) =>
+    wrapper
+      .findAll('button')
+      .find((b) => b.text() === text)!
+      .trigger('click');
+  await click('Download TXT');
+  expect(downloadText).toHaveBeenLastCalledWith('Cleaned first page');
+  await click('Keep this page in TXT');
+  expect(wrapper.findAll('textarea')).toHaveLength(2);
+  await click('Use original OCR');
+  expect(store.pages[0]?.rawText).toBe(raw);
+  expect(store.pages[0]?.correctedText).toBe('Cleaned first page');
+  await click('Download TXT');
+  expect(downloadText).toHaveBeenLastCalledWith(
+    raw + '\n\n\nCleaned duplicate',
+  );
+  await click('Set duplicate aside again');
+  expect(wrapper.findAll('textarea')).toHaveLength(1);
+  wrapper.unmount();
+  await queue.dispose();
+});
 it('edits, exports, deletes, confirms clearing, and retains raw OCR', async () => {
   const pinia = createPinia();
   setActivePinia(pinia);

@@ -77,7 +77,7 @@ try {
   await evaluate(`window.testBorderless=${borderless};window.testPage=1;window.moving=true;window.workers=[];window.stops=0;window.analysisTimes=[];window.analysisStarts=[];const NativeWorker=window.Worker;window.Worker=class extends NativeWorker{constructor(...args){let boot;if((window.noOffscreen||window.brokenWorkerCanvas) && String(args[0]).includes('imageProcessing')){boot=URL.createObjectURL(new Blob([(window.brokenWorkerCanvas?'self.OffscreenCanvas=class{getContext(){return null;}};':'self.OffscreenCanvas=undefined;')+'const queued=[];self.onmessage=e=>queued.push(e);await import('+JSON.stringify(String(args[0]))+');for(const e of queued)self.onmessage(e);'],{type:'text/javascript'}));args[0]=boot;}super(...args);this.boot=boot;this.jobs=new Map();this.addEventListener('message',e=>{const start=this.jobs.get(e.data.id);if(start!==undefined){window.analysisTimes.push(performance.now()-start);this.jobs.delete(e.data.id);}});window.workers.push(this)}postMessage(message,...rest){if(message.type==='analyze'){const now=performance.now();this.jobs.set(message.id,now);window.analysisStarts.push(now);}return super.postMessage(message,...rest);}terminate(){if(this.boot)URL.revokeObjectURL(this.boot);window.stops++;return super.terminate()}};
  navigator.mediaDevices.getUserMedia=async()=>{const c=document.createElement('canvas');c.width=900;c.height=1200;window.cameraCanvas=c;const ctx=c.getContext('2d');setInterval(()=>{ctx.fillStyle=window.testBorderless?'#fffef2':'#202520';ctx.fillRect(0,0,900,1200);if(!window.testPage)return;const offset=window.moving?Math.sin(Date.now()/90)*45:0;ctx.save();ctx.translate(offset,0);if(window.testPage===2)ctx.transform(1,.055,-.075,1,45,-25);ctx.fillStyle='#fffef2';ctx.fillRect(130,120,640,960);ctx.fillStyle='#111';ctx.font='bold 30px Georgia';ctx.fillText('BOOKLENS PAGE '+window.testPage,165,210);ctx.font='26px Georgia';for(let i=0;i<19;i++){const text=window.testPage===1?'The morning light filled the room.':'A different chapter begins today.';ctx.fillText(text,165,270+i*38)}ctx.restore();},50);const stream=c.captureStream(20);window.track=stream.getVideoTracks()[0];return stream;}`);
   await evaluate(
-    `window.ocrUploads=[];const originalFetch=window.fetch;window.fetch=async(...args)=>{const [url,options]=args;if(String(url).endsWith('/ocr')&&options?.body instanceof FormData){const capability=await originalFetch(String(url)+'/status');if(!capability.ok||(await capability.json()).googleDocumentAiConfigured!==false)throw new Error('Smoke check requires unconfigured cloud OCR; no image uploaded');const image=options.body.get('image');const info={type:image.type,bytes:image.size,pageId:options.body.get('pageId')};window.ocrUploads.push(info);const response=await originalFetch(...args);info.status=response.status;return response;}return originalFetch(...args);};`,
+    `window.ocrUploads=[];const originalFetch=window.fetch;window.fetch=async(...args)=>{const [url,options]=args;if(String(url).endsWith('/proofread')){const status=await originalFetch(String(url)+'/status');if(!status.ok||(await status.json()).configured!==false)throw new Error('Smoke test requires unconfigured cleanup; no paid request');}if(String(url).endsWith('/ocr')&&options?.body instanceof FormData){const capability=await originalFetch(String(url)+'/status');if(!capability.ok||(await capability.json()).googleDocumentAiConfigured!==false)throw new Error('Smoke check requires unconfigured cloud OCR; no image uploaded');const image=options.body.get('image');const info={type:image.type,bytes:image.size,pageId:options.body.get('pageId')};window.ocrUploads.push(info);const response=await originalFetch(...args);info.status=response.status;return response;}return originalFetch(...args);};`,
   );
   await click('Start Camera');
   await wait(
@@ -91,7 +91,7 @@ try {
   await sleep(1800);
   if (
     !(await evaluate(
-      "document.querySelector('.counts').textContent.includes('0 captured')",
+      "document.querySelector('.counts').textContent.includes('0 shots saved')",
     ))
   )
     throw new Error('Captured moving page');
@@ -112,7 +112,7 @@ try {
   );
   console.log('PASS animated text outline and automatic capture progress');
   await wait(
-    "document.querySelector('.counts')?.textContent.includes('1 captured')",
+    "document.querySelector('.counts')?.textContent.includes('1 shots saved')",
     45000,
   );
   if (
@@ -130,45 +130,32 @@ try {
     ))
   )
     throw new Error('Missing regional success overlay');
-  await sleep(5200);
-  if (
-    !(await evaluate(
-      "document.querySelector('.counts').textContent.includes('1 captured')",
-    ))
-  )
-    throw new Error('Duplicate captured');
-  console.log('PASS held page stays locked');
-  await evaluate('window.testPage=0');
-  await sleep(900);
-  await evaluate('window.testPage=2');
-  await wait(
-    "document.querySelector('.counts')?.textContent.includes('2 captured')",
-    45000,
-  );
-  console.log('PASS turn re-arms and new page captured');
-  await click('Manual Capture');
+  const savedAt = Date.now();
+  const analysesAtSave = await evaluate('window.analysisStarts.length');
   await sleep(1000);
   if (
     !(await evaluate(
-      "document.querySelector('.counts').textContent.includes('2 captured')",
+      "document.querySelector('.counts').textContent.includes('1 shots saved')",
     ))
   )
-    throw new Error('Manual duplicate accepted');
-  console.log('PASS manual duplicate ignored');
-  await evaluate('window.testPage=0');
-  await sleep(650);
-  await evaluate('window.testPage=1');
+    throw new Error('Captured before cooldown');
+  if ((await evaluate('window.analysisStarts.length')) !== analysesAtSave)
+    throw new Error('Analyzed during cooldown');
+  console.log('PASS photo cooldown pauses analysis');
   await wait(
-    "document.querySelector('[data-state]')?.dataset.state==='duplicate'",
-    45000,
+    "document.querySelector('.counts')?.textContent.includes('2 shots saved')",
+    15000,
   );
-  if (
-    !(await evaluate(
-      "document.querySelector('.counts').textContent.includes('2 captured')",
-    ))
-  )
-    throw new Error('Backward page duplicated');
-  console.log('PASS backward turn rejects an older page before OCR');
+  if (Date.now() - savedAt < 1950) throw new Error('Second photo too early');
+  console.log('PASS same page can be photographed after two-second pause');
+  await evaluate('window.testPage=2');
+  await wait(
+    "document.querySelector('.counts')?.textContent.includes('3 shots saved')",
+    15000,
+  );
+  await click('Pause');
+  console.log('PASS next page saved while background work continues');
+
   if (
     !(await evaluate('document.documentElement.scrollWidth<=window.innerWidth'))
   )
@@ -184,6 +171,13 @@ try {
     "location.pathname==='/review' && document.querySelectorAll('textarea').length===2",
     150000,
   );
+  if (
+    !(await evaluate(
+      "document.body.innerText.includes('Matches original shot 1')",
+    ))
+  )
+    throw new Error('Repeated page not set aside with original position');
+  console.log('PASS OCR text duplicate excluded from document');
   const texts = await evaluate(
     "[...document.querySelectorAll('textarea')].map(t=>t.value)",
   );

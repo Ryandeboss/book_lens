@@ -40,7 +40,7 @@ export interface Detection {
   textPresent?: boolean;
   analysisWidth?: number;
   analysisHeight?: number;
-  source?: 'page' | 'text';
+  source?: 'page' | 'text' | 'guide';
   captureCorners?: Quad;
   corners: Quad | null;
   aligned: boolean;
@@ -60,6 +60,7 @@ export type AutoScanState =
   | 'stabilizing'
   | 'capturing'
   | 'captured'
+  | 'cooldown'
   | 'waitingForPageChange'
   | 'duplicate'
   | 'paused'

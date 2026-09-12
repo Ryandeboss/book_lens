@@ -66,7 +66,18 @@ function download() {
       }}</AppButton>
     </div>
     <p v-if="exportError" class="scan-error" role="alert">{{ exportError }}</p>
-    <article v-for="page in session.pages" :key="page.id" class="document-card">
+    <p v-if="session.duplicatePages.length" role="status">
+      {{ session.duplicatePages.length }} likely duplicate(s) set aside below
+      and excluded from TXT.
+    </p>
+    <article
+      v-for="page in session.includedPages"
+      :key="page.id"
+      class="document-card"
+    >
+      <p class="scan-hint">
+        Original shot {{ page.capturePosition ?? page.pageNumber }}
+      </p>
       <PageTextEditor
         v-if="page.status === 'ready'"
         :id="`page-${page.id}`"
@@ -100,6 +111,51 @@ function download() {
       >
         Very little text was detected. Review, edit, or delete this page.
       </p>
+      <template v-if="page.status === 'ready'">
+        <p v-if="page.cleanupStatus === 'applied'" class="scan-hint">
+          AI cleanup applied. Review corrections before downloading.
+        </p>
+        <p
+          v-else-if="
+            page.cleanupStatus === 'failed' ||
+            page.cleanupStatus === 'unavailable'
+          "
+          class="scan-hint"
+        >
+          AI cleanup unavailable; original OCR kept.
+        </p>
+        <details>
+          <summary>Original OCR and corrections</summary>
+          <h3>Original OCR</h3>
+          <pre>{{ page.rawText }}</pre>
+          <button
+            type="button"
+            class="secondary-button"
+            @click="session.updatePage(page.id, page.rawText)"
+          >
+            Use original OCR
+          </button>
+          <template v-if="page.correctedText !== undefined">
+            <h3>AI cleaned text</h3>
+            <pre>{{ page.correctedText }}</pre>
+            <button
+              type="button"
+              class="secondary-button"
+              @click="session.updatePage(page.id, page.correctedText!)"
+            >
+              Use cleaned text
+            </button>
+          </template>
+        </details>
+        <button
+          v-if="page.duplicateOf"
+          type="button"
+          class="secondary-button"
+          @click="session.keepDuplicate(page.id, false)"
+        >
+          Set duplicate aside again
+        </button>
+      </template>
       <button
         class="secondary-button"
         type="button"
@@ -109,6 +165,47 @@ function download() {
         Delete Page
       </button>
     </article>
+    <details v-if="session.duplicatePages.length" class="document-card" open>
+      <summary>
+        Likely duplicates — excluded from TXT ({{
+          session.duplicatePages.length
+        }})
+      </summary>
+      <article
+        v-for="page in session.duplicatePages"
+        :key="page.id"
+        class="duplicate-card"
+      >
+        <h2>Shot {{ page.capturePosition ?? page.pageNumber }}</h2>
+        <p>
+          Matches original shot
+          {{
+            session.pages.find((p) => p.id === page.duplicateOf)
+              ?.capturePosition
+          }}
+          ({{ Math.round((page.duplicateScore ?? 0) * 100) }}% text match). Its
+          place in the scan is preserved.
+        </p>
+        <details>
+          <summary>Inspect original OCR</summary>
+          <pre>{{ page.rawText }}</pre>
+        </details>
+        <button
+          type="button"
+          class="secondary-button"
+          @click="session.keepDuplicate(page.id, true)"
+        >
+          Keep this page in TXT
+        </button>
+        <button
+          type="button"
+          class="secondary-button"
+          @click="removePage(page.id)"
+        >
+          Delete duplicate
+        </button>
+      </article>
+    </details>
     <details v-if="session.pages.length" class="document-card">
       <summary>Combined document preview</summary>
       <pre>{{ session.combinedText }}</pre>

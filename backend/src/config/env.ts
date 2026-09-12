@@ -19,6 +19,20 @@ const schema = z.object({
   OCR_MAX_CONCURRENT_REQUESTS: z.coerce.number().int().min(1).max(4).default(2),
   OCR_REQUESTS_PER_MINUTE: z.coerce.number().int().min(1).max(1000).default(30),
   OCR_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(45000),
+  OPENAI_API_KEY: z.string().trim().default(''),
+  OPENAI_PROOFREAD_MODEL: z.string().trim().min(1).default('gpt-5.4-nano'),
+  PROOFREAD_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .max(60000)
+    .default(45000),
+  PROOFREAD_REQUESTS_PER_MINUTE: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(1000)
+    .default(30),
 });
 export const env = schema.parse(process.env);
 export const allowedOrigins = [

@@ -142,20 +142,24 @@ async function advance(ms: number) {
   await flushPromises();
 }
 describe('continuous scan screen', () => {
-  it('automatically captures at source resolution, keeps text out of scan, and locks the held page', async () => {
+  it('automatically saves source-resolution photos and waits two seconds before looking again', async () => {
     expect(wrapper.find('video').exists()).toBe(false);
     const video = await ready();
     expect(vision.process).not.toHaveBeenCalled();
     await advance(1100);
     expect(useScanStore().pages).toHaveLength(1);
     expect(drawImage).toHaveBeenCalledWith(video.element, 0, 0, 1920, 1080);
-    expect(wrapper.text()).toContain('1 captured');
+    expect(wrapper.text()).toContain('1 shots saved');
     expect(wrapper.find('textarea').exists()).toBe(false);
-    await advance(3000);
+    const analyses = vision.analyze.mock.calls.length;
+    await advance(900);
     expect(vision.process).toHaveBeenCalledOnce();
+    expect(vision.analyze).toHaveBeenCalledTimes(analyses);
     expect(wrapper.get('[data-state]').attributes('data-state')).toBe(
-      'waitingForPageChange',
+      'cooldown',
     );
+    await advance(2000);
+    expect(vision.process).toHaveBeenCalledTimes(2);
   });
   it('pauses automatic capture but manual capture refreshes geometry and uses the guide fallback', async () => {
     await ready();
@@ -186,9 +190,9 @@ describe('continuous scan screen', () => {
     });
     await button('Manual Capture').trigger('click');
     await flushPromises();
-    expect(useScanStore().pages).toHaveLength(1);
-    expect(engine.recognize).toHaveBeenCalledOnce();
-    expect(wrapper.text()).toContain('Already scanned');
+    expect(useScanStore().pages).toHaveLength(2);
+    expect(engine.recognize).toHaveBeenCalledTimes(2);
+    expect(wrapper.text()).toContain('Shot 2 saved');
   });
   it('Done stops acceptance and camera immediately, drains OCR, then opens Review', async () => {
     let complete!: (result: OcrResult) => void;
@@ -203,7 +207,7 @@ describe('continuous scan screen', () => {
     await button('Done').trigger('click');
     await flushPromises();
     expect(stop).toHaveBeenCalledOnce();
-    expect(wrapper.text()).toContain('Finishing scan');
+    expect(wrapper.text()).toContain('Finishing your text');
     expect(router.currentRoute.value.path).toBe('/scan');
     await advance(2000);
     expect(useScanStore().pages).toHaveLength(1);
@@ -303,7 +307,7 @@ it('freezes the accepted region during green feedback while OCR remains pending'
   await advance(600);
   expect(wrapper.find('.accepted-region').exists()).toBe(false);
 });
-it('rejects an older duplicate without consuming a page number, then accepts a distinct page', async () => {
+it('saves visually similar photos for later text comparison without losing shot positions', async () => {
   await ready();
   await button('Pause').trigger('click');
   await button('Manual Capture').trigger('click');
@@ -319,8 +323,8 @@ it('rejects an older duplicate without consuming a page number, then accepts a d
   await flushPromises();
   await button('Manual Capture').trigger('click');
   await flushPromises();
-  expect(useScanStore().pages.map((p) => p.pageNumber)).toEqual([1, 2]);
-  expect(engine.recognize).toHaveBeenCalledTimes(2);
+  expect(useScanStore().pages.map((p) => p.capturePosition)).toEqual([1, 2, 3]);
+  expect(engine.recognize).toHaveBeenCalledTimes(3);
 });
 
 it('automatically scans text without page edges and shows progress before green feedback', async () => {
@@ -351,7 +355,12 @@ it('automatically scans text without page edges and shows progress before green 
   expect(wrapper.find('.accepted-region').exists()).toBe(true);
   expect(useScanStore().pages[0]?.status).toBe('processing');
   await advance(5000);
-  expect(useScanStore().pages).toHaveLength(1);
+  expect(useScanStore().pages).toHaveLength(3);
+  expect(useScanStore().pages.map((p) => p.status)).toEqual([
+    'processing',
+    'queued',
+    'queued',
+  ]);
 });
 
 it('invalidates an in-flight analysis across Pause and immediate Resume', async () => {

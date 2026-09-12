@@ -133,7 +133,9 @@ it('text body motion resets stability; absent body never blocks a sparse page', 
       ...p,
       x: p.x + (t % 340 === 0 ? config.textBodyMovement * 2 : 0),
     })) as Detection['corners'];
-    expect(machine.sample({ ...page(), textBody }, t)).toBe(false);
+    expect(machine.sample({ ...page(), source: 'text', textBody }, t)).toBe(
+      false,
+    );
   }
   expect(stabilize(new AutoScanMachine())).toBe(true);
 });

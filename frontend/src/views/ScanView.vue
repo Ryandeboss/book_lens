@@ -81,8 +81,18 @@ watch(isActive, (value) => {
       <p class="eyebrow">01 / SCAN</p>
       <h1>Turn pages. Keep the words.</h1>
       <p>
-        Show one page and hold briefly. Capture happens automatically. After the
-        green check, turn to the next page. Text is read in the background.
+        Hold a page still and in focus. A green flash confirms your photo is
+        saved. You have two seconds to turn the page before the camera looks for
+        another clear shot. OCR and cleanup happen in the background.
+      </p>
+      <label class="cleanup-option">
+        <input v-model="session.cleanupEnabled" type="checkbox" />
+        Clean up OCR text with AI when available
+      </label>
+      <p class="scan-hint">
+        With cleanup enabled, OCR text is sent to OpenAI. You can review the
+        original and undo corrections. Photos stay only in temporary memory;
+        keep this tab open until processing finishes.
       </p>
       <p class="scan-hint">
         Page images are sent to our server and Google for OCR, without BookLens
@@ -145,7 +155,7 @@ watch(isActive, (value) => {
         Show one page and hold briefly. Capture is automatic.
       </p>
       <p class="counts">
-        {{ session.pages.length }} captured · {{ processed }} processed<span
+        {{ session.pages.length }} shots saved · {{ processed }} processed<span
           v-if="failed"
         >
           · {{ failed }} need review</span
@@ -225,7 +235,7 @@ watch(isActive, (value) => {
       </details>
     </div>
     <div v-if="finishing" class="document-card" aria-busy="true">
-      <h2>Finishing scan...</h2>
+      <h2>Photos saved. Finishing your text...</h2>
       <p role="status">
         {{ processed }} / {{ session.pages.length }} pages processed<span
           v-if="failed"
@@ -234,8 +244,8 @@ watch(isActive, (value) => {
         >
       </p>
       <p>
-        Keep this tab open while the remaining pages finish. Failed pages will
-        be marked in Review.
+        Keep this tab open while OCR and optional cleanup finish. Likely
+        duplicate pages will be set aside in Review, where you can restore them.
       </p>
       <progress
         :value="processed + failed"

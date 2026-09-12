@@ -13,29 +13,31 @@ A mobile-first web application for turning printed pages into editable text. Boo
 - [x] Editable OCR review
 - [x] TXT export
 - [x] Live page and main text-body overlays
-- [x] Recent-page duplicate prevention with compact fingerprints and ORB
+- [x] Reversible duplicate-text exclusion with original shot positions
 - [x] Page boundary detection
 - [x] Perspective correction
 - [x] Automatic page capture
 - [ ] Supabase persistence
 - [ ] Authentication
-- [ ] AI OCR cleanup
+- [x] Optional OpenAI OCR cleanup with original text preserved
 
 ## Scan a book
 
-Run `npm.cmd run dev` and open http://localhost:5173/scan. Start Camera, allow access, and hold one page in view. BookLens first checks motion, then finds the page boundary, checks lighting/focus, and looks for printed text. When page edges are unclear, a central region with a visible text block can qualify, without a clear-margin requirement. A strong page boundary also allows sharp title pages and illustrated pages. Hold briefly for about a third of a second; the outlined region flashes green when the picture is accepted, then turn the page immediately.
+Run `npm.cmd run dev` and open http://localhost:5173/scan. Start Camera and center one page. BookLens checks motion, lighting and focus, then saves a photo after a brief steady hold. **The green flash means the shot is saved, not that OCR has finished.** Turn the page during the two-second pause; the camera then looks for another clear, steady shot. Printed-text detection is optional and no clear margin is required.
 
-The sweep/progress display reflects capture readiness, not completion of Google OCR. The detected page is perspective-corrected, including headings and footnotes. Without reliable page corners, the full visible photograph is retained. Native still-photo capture is preferred where supported; otherwise BookLens captures the actual video resolution. The browser preview runs independently of analysis (at most about six checks/second). Holding the same page does not scan it twice. Recent-page matching uses compact content fingerprints and optional ORB features, without retaining full photos.
+A detected page is perspective-corrected, including headings and footnotes. Without reliable page corners, the full visible photograph is retained. Native still-photo capture is preferred where supported; otherwise the actual video resolution is used. Images are compressed at high quality. Up to 30 pending photos / 48 MiB can queue while OCR and optional AI cleanup run independently of capture. At the memory limit, scanning waits for capacity automatically. Photos exist temporarily in this tab, not in a persistent gallery; keep it open.
+
+Holding the same page can save it again after the pause. Once OCR finishes, a conservative text comparison sets likely duplicates aside with their original shot numbers. Review lets you inspect and restore them. Short pages and ambiguous matches stay in the document to avoid losing content.
 
 See the [automatic capture report and phone tuning checklist](docs/automatic-capture-verification.md) for the exact gates, compatibility fallbacks, tests, and settings. Physical iPhone/Android testing is still required.
 
 If page analysis fails, BookLens tries a compatible pixel-transfer path once. Resume rebuilds page detection and restarts a paused preview. Loading/initialization failures now provide specific recovery guidance. After a scanner update is deployed, reload the site once to load the new code.
 
-Pause stops automatic acceptance. Resume restarts detection; Manual Capture bypasses the stability/quality gates and refreshes detection before photographing the visible preview. Manual captures still use duplicate protection and the OCR queue. Stop Camera releases the camera; accepted pages remain available in Review. Backgrounding pauses scanning and requires an explicit Resume.
+Pause stops automatic acceptance. Resume restarts detection; Manual Capture bypasses the stability/quality gates and refreshes detection before photographing the visible preview. Manual captures also enter the OCR queue and are checked for duplicate text afterward. Stop Camera releases the camera; accepted pages remain available in Review. Backgrounding pauses scanning and requires an explicit Resume.
 
-Done stops the camera and new captures, waits for pending OCR, then opens Review. Edit or delete pages and Download TXT. Raw OCR stays separate from edited text; export uses edited text in page order, separated by three newlines. Failed pages offer Retry while their temporary image remains available, or instructions to delete/rescan. Nearly blank OCR results are marked for review. Start New Scan asks before clearing the document.
+Done stops the camera and new captures, waits for pending OCR and cleanup, then opens Review. Edit or delete pages and Download TXT. Raw OCR and AI-corrected text stay separate from editable text. Use original OCR / Use cleaned text switches representations without losing either. TXT uses edited text in capture order, excluding set-aside duplicates, separated by three newlines. Failed pages offer Retry while their temporary image remains available, or instructions to delete/rescan. Nearly blank OCR results are marked for review. Start New Scan asks before clearing the document.
 
-Sessions stay in this tab: download before refreshing or closing. Text, original OCR paragraphs/languages, provider, status, and small fingerprints live in Pinia. OpenCV runs in a browser worker. Corrected page images are temporarily uploaded to Render, then Google Document AI. BookLens does not persist them. Tesseract is the fallback, not the preferred primary engine. Successful OCR releases the queued image. Pending and retry images have separate count and byte limits.
+Sessions stay in this tab: download before refreshing or closing. Text, original OCR paragraphs/languages, provider, status, and small fingerprints live in Pinia. OpenCV runs in a browser worker. Corrected page images are temporarily uploaded to Render, then Google Document AI. BookLens does not persist them. Tesseract is the fallback, not the preferred primary engine. Finishing the background job releases the queued image. Pending and retry images have separate count and byte limits.
 
 OpenCV is loaded lazily from the application's bundled worker (~15.6 MB before transfer compression). If cloud OCR fails, Tesseract lazily downloads its English worker/engine/language resources from its default versioned CDN paths; language data may be cached in browser IndexedDB. Initial use requires internet access and can take longer. OpenCV requests time out after 60 seconds. Cloud uploads have a 65-second frontend deadline and a 45-second backend processing deadline; failed cloud attempts fall back without an automatic paid retry. Subsequent pages use Tesseract during a 60-second cloud cooldown. Tesseract has its existing 3-minute deadline. See [Tesseract worker documentation](https://github.com/naptha/tesseract.js/blob/master/docs/api.md).
 
@@ -55,13 +57,19 @@ Use `VITE_SCANNER_DEBUG=true` locally, restart Vite, and open Scan with the came
 
 The public OCR endpoint has per-process concurrency and request-rate limits, but this phase does not add authentication. CORS is not access control. Configure Google quotas/billing alerts before enabling paid OCR on a public service; the limits are not a guaranteed spending cap.
 
+## Optional AI text cleanup
+
+[Enable cleanup on Render and test a page](docs/photo-flow-and-cleanup.md). The default model is `gpt-5.4-nano`, configured with a backend-only `OPENAI_API_KEY`. No key is required for scanning or OCR. The checkbox before starting the camera controls cleanup for subsequent jobs. When enabled and configured, OCR text passes through Render to OpenAI; images are not sent to OpenAI. Cleanup can correct likely transcription errors and paragraph formatting, but inferred words may be wrong: review before exporting. Raw OCR is always retained. No local model server is required.
+
 ## Architecture
 
 ```text
-Camera -> live page/text detection -> stability -> corrected image + recent-page check
-       -> compressed image -> background queue -> Render /api/ocr -> Google Document AI
-                                                        \-> browser Tesseract on cloud failure
-Text/paragraphs -> scan store -> Review -> TXT
+Camera -> clear/still page -> corrected, compressed photo -> green saved confirmation
+                          -> two-second capture pause -> next photo
+Saved photos -> background queue -> Render /api/ocr -> Google Document AI
+                                   \-> Tesseract on cloud failure
+OCR text -> optional Render /api/proofread -> OpenAI -> corrected text
+Raw OCR -> duplicate comparison -> Review (restore/undo/edit) -> TXT
 ```
 
 Vue uses Composition API single-file components, Vue Router for navigation, and Pinia for the current text document. Camera capture, OpenCV processing, fallback Tesseract OCR, and TXT export run in the browser. The official Google Document AI client and Application Default Credentials exist only in the backend. Express keeps HTTP handling separate from future business logic and persistence. In Docker, Nginx serves the production frontend and proxies API requests. See [architecture details](docs/architecture.md).

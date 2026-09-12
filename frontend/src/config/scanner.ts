@@ -28,8 +28,9 @@ export const scannerConfig = {
   fingerprintWidth: 40,
   fingerprintHeight: 56,
   flashMs: 500,
-  maxPendingImages: 3, // Includes currently processing image.
-  maxPendingBytes: 24 * 1024 * 1024,
+  captureCooldownMs: 2000, // Starts when the corrected shot is safely queued.
+  maxPendingImages: 30, // Includes currently processing image; bounded on mobile.
+  maxPendingBytes: 48 * 1024 * 1024,
   maxRetryImages: 2,
   maxRetryBytes: 12 * 1024 * 1024,
   captureMaxPixels: 8_000_000,
