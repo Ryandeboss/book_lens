@@ -131,7 +131,7 @@ it('text body motion resets stability; absent body never blocks a sparse page', 
   for (let t = 0; t < 3000; t += 170) {
     const textBody = page().corners!.map((p) => ({
       ...p,
-      x: p.x + (t % 340 === 0 ? 0.04 : 0),
+      x: p.x + (t % 340 === 0 ? config.textBodyMovement * 2 : 0),
     })) as Detection['corners'];
     expect(machine.sample({ ...page(), textBody }, t)).toBe(false);
   }
@@ -148,4 +148,62 @@ it('expires feedback without another camera frame and throttles duplicate notifi
   machine.duplicate(page().signature, 1000 + config.duplicateMessageCooldownMs);
   expect(machine.duplicateNotifications).toBe(2);
   expect(machine.state).toBe('duplicate');
+});
+
+it('captures stable text without a page boundary and requires three samples even on a slow phone', () => {
+  const machine = new AutoScanMachine();
+  const d: Detection = {
+    ...page(),
+    source: 'text',
+    corners: null,
+    textBody: page().corners,
+  };
+  expect(machine.sample(d, 0)).toBe(false);
+  expect(machine.sample(d, 850)).toBe(false);
+  expect(machine.sample(d, 1700)).toBe(true);
+});
+it('uses normalized content for stability rather than resetting for small camera translation', () => {
+  const machine = new AutoScanMachine();
+  const content = {
+    gray: [0.1, -0.1],
+    edges: [0.2, 0.1],
+    hash: '0123456789abcdef',
+    density: [0.2, 0.1],
+  };
+  let captured = false;
+  for (let t = 0; t < 1100; t += 170)
+    captured =
+      machine.sample(
+        {
+          ...page(),
+          content,
+          signature: t % 340 === 0 ? [0.2, -0.2] : [-0.2, 0.2],
+        },
+        t,
+      ) || captured;
+  expect(captured).toBe(true);
+});
+it('does not interpret switching from page-edge to text detection as a page turn', () => {
+  const machine = new AutoScanMachine();
+  const content = {
+    gray: [0.1, -0.1],
+    edges: [0.2, 0.1],
+    hash: '0123456789abcdef',
+    density: [0.2, 0.1],
+  };
+  machine.accepted(page().signature, 0, 'Captured', content, 'page');
+  for (let t = 170; t < 3000; t += 170)
+    expect(
+      machine.sample(
+        {
+          ...page(),
+          source: 'text',
+          corners: null,
+          textBody: page().corners,
+          content: { ...content, gray: [-0.4, 0.4], hash: 'ffffffffffffffff' },
+        },
+        t,
+      ),
+    ).toBe(false);
+  expect(machine.state).toBe('waitingForPageChange');
 });

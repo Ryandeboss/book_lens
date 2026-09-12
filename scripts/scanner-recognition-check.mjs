@@ -69,7 +69,8 @@ try {
     const request=async(type,canvas,corners=null,recent=[])=>{const bitmap=await createImageBitmap(canvas);return new Promise((resolve,reject)=>{const key=++id;pending.set(key,{resolve,reject});worker.postMessage({id:key,type,bitmap,corners,recent},[bitmap]);});};
     function fixture(kind='text',variant=0){
       const c=document.createElement('canvas');c.width=600;c.height=800;const ctx=c.getContext('2d');
-      ctx.fillStyle='#202520';ctx.fillRect(0,0,600,800);ctx.save();
+      ctx.fillStyle=['borderless','blank'].includes(kind)?'#fffef2':'#202520';ctx.fillRect(0,0,600,800);ctx.save();
+      if(kind==='blank'){ctx.restore();return c;}
       if(kind==='tilted')ctx.transform(1,.025,-.025,1,12,-8);
       if(kind==='shifted')ctx.translate(8,5);
       ctx.fillStyle=kind==='dim'?'#c7c5b9':'#fffef2';
@@ -92,8 +93,10 @@ try {
       const first=await request('process',canvas,detection.corners);
       const recent=[{id:'first',pageNumber:1,fingerprint:first.visualFingerprint}];
       output.push({case:'text',aligned:detection.aligned,body:!!detection.textBody,features:first.visualFingerprint.features?.points.length,bytes:first.blob.size});
-      for(const kind of ['text','shifted','tilted','dim','gutter','title','image','spread']){
+      for(const kind of ['text','shifted','tilted','dim','gutter','title','image','spread','borderless','blank']){
         const c=fixture(kind),d=await request('analyze',c);
+        if(kind==='blank'){if(d.aligned)throw new Error('Blank scene must not auto-capture');output.push({case:kind,aligned:d.aligned});continue;}
+        if(kind==='borderless'&&(d.source!=='text'||d.corners||!d.textBody))throw new Error('Missing text-based fallback '+JSON.stringify(d));
         if(kind==='spread'){if(d.aligned||d.hint!=='centerOnePage')throw new Error('Spread should prompt one page');output.push({case:kind,hint:d.hint});continue;}
         if(!d.aligned)throw new Error('Not aligned '+kind+' '+JSON.stringify({corners:d.corners,sharpness:d.sharpness,alignment:d.alignment,hint:d.hint}));
         const p=await request('process',c,d.corners,recent);

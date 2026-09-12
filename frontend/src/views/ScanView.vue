@@ -81,8 +81,9 @@ watch(isActive, (value) => {
       <p class="eyebrow">01 / SCAN</p>
       <h1>Turn pages. Keep the words.</h1>
       <p>
-        Place one page inside the guide and hold steady. After the green check,
-        turn to the next page. Text is read in the background.
+        Keep one page's text inside the guide and hold steady. Capture happens
+        automatically. After the green check, turn to the next page. Text is
+        read in the background.
       </p>
       <p class="scan-hint">
         Page images are sent to our server and Google for OCR, without BookLens
@@ -117,6 +118,7 @@ watch(isActive, (value) => {
           :width="width"
           :height="height"
           :state="machine.state"
+          :progress="machine.stableProgress"
           :corners="
             (machine.state === 'captured' ? acceptedRegion : detection)
               ?.corners ?? null
@@ -129,6 +131,19 @@ watch(isActive, (value) => {
       </CameraPreview>
       <p class="scanner-status" role="status" :data-state="machine.state">
         {{ machine.message }}
+      </p>
+      <progress
+        v-if="machine.state === 'stabilizing' || machine.state === 'capturing'"
+        class="capture-progress"
+        :value="machine.state === 'capturing' ? 1 : machine.stableProgress"
+        :max="1"
+        aria-label="Automatic capture progress"
+      />
+      <p
+        v-if="machine.state === 'searching' || machine.state === 'detected'"
+        class="scan-hint"
+      >
+        Keep one page's text inside the guide. Capture is automatic.
       </p>
       <p class="counts">
         {{ session.pages.length }} captured · {{ processed }} processed<span
@@ -174,6 +189,7 @@ watch(isActive, (value) => {
           JSON.stringify(
             {
               state: machine.state,
+              detectionSource: detection?.source,
               corners: detection?.corners,
               alignment: detection?.alignment,
               textBody: detection?.textBody,
@@ -245,6 +261,13 @@ h1 {
 }
 .scanner-status[data-state='captured'] {
   color: #59f59d;
+}
+.capture-progress {
+  display: block;
+  width: min(70%, 280px);
+  height: 5px;
+  margin: 0 auto 12px;
+  accent-color: #87ddff;
 }
 .counts {
   text-align: center;

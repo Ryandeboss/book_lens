@@ -1,5 +1,17 @@
 # Scanner recognition and duplicate prevention
 
+## Automatic-capture follow-up
+
+The original implementation could stay blocked without four detectable paper corners, and it discarded text-body detection in that case. Automatic scanning now accepts a stable, credible text block when the paper border is missing or does not align. It requires at least three printed rows, a 25%-wide/12%-tall region, and clear crop margins; blank or clipped text and ambiguous spreads do not qualify. Keep the complete page text inside the guide: this mode captures the guide, rather than cropping to only the main paragraph.
+
+A sweep animates over the detected text, with a progress outline/bar while holding steady. The green flash means capture was accepted, not that Google OCR has completed; turn the page immediately. Reduced-motion preferences disable the sweep. Stability uses normalized page content, allows 0.025 corner/0.04 body movement, requires three samples plus 750 ms, and tolerates analysis gaps up to 1500 ms for slower phones. The lock distinguishes a detection-mode switch from a page turn. No Google or queue behavior changed.
+
+Added regression coverage: missing-border automatic capture, slow sampling, translated guide content, detection-mode changes while locked, clipped/sparse text rejection, and visible progress followed by green feedback while OCR is pending. Real OpenCV fixtures now include a borderless page and a blank scene. `node scripts/scanner-browser-check.mjs http://localhost --borderless` exercises automatic two-page capture, hold/duplicate protection, backward turns, real fallback OCR and Review without relying on a paper edge. Repeat the phone checklist with a page filling the view and with white paper on a light background.
+
+Verification of the follow-up passed: **101 tests** (78 frontend / 23 backend), lint, typecheck, frontend/backend builds, formatting, Docker/Nginx, health/status endpoints, real OpenCV fixtures, and the complete browser scan-to-Review test both with and without visible paper borders. Phone-camera testing remains manual.
+
+## Original recognition phase
+
 This phase extends the working automatic scanner. Google Document AI remains primary, with the existing browser Tesseract fallback. No backend, authentication, storage, AI proofreading, PDF, or deployment configuration changes were needed. No dependencies were added.
 
 ## Reused code and behavior

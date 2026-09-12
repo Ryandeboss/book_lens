@@ -25,6 +25,8 @@ A mobile-first web application for turning printed pages into editable text. Boo
 
 Run `npm.cmd run dev` and open http://localhost:5173/scan. Start Camera, allow access, and fit one page inside the portrait guide. Hold steady until the green check confirms acceptance, then turn the page immediately. OCR runs in the background; the counters distinguish captured and processed pages. If processing falls behind, hold for a moment until capture resumes.
 
+Automatic capture can also use a clear block of text when the paper border is not visible. Keep all of the page's text inside the guide. A moving scan line and progress outline show the hold before capture; green means the image is accepted and you can turn the page while OCR continues.
+
 The strong outline follows the detected page; a thinner outline estimates its main printed-text area. The accepted region flashes green with a checkmark. Keeping the same page visible does not scan it twice; returning to one of the last eight accepted pages shows an amber **Already scanned** message when the visual evidence is strong. Center one page if an open spread is ambiguous.
 
 Pause stops automatic acceptance. Resume restarts detection; Manual Capture bypasses the stability/quality gates and refreshes the geometry, using the guide crop if no boundary is found. Manual captures still use duplicate protection and the OCR queue. Stop Camera releases the camera; accepted pages remain available in Review. Backgrounding pauses scanning and requires an explicit Resume.

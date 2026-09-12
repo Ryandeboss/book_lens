@@ -286,3 +286,29 @@ it('rejects an older duplicate without consuming a page number, then accepts a d
   expect(useScanStore().pages.map((p) => p.pageNumber)).toEqual([1, 2]);
   expect(engine.recognize).toHaveBeenCalledTimes(2);
 });
+
+it('automatically scans text without page edges and shows progress before green feedback', async () => {
+  const d: Detection = {
+    ...page(),
+    source: 'text',
+    corners: null,
+    textBody: page().corners,
+  };
+  vision.analyze.mockResolvedValue(d);
+  engine.recognize.mockReturnValue(new Promise(() => {}));
+  await ready();
+  await advance(340);
+  expect(wrapper.find('.scan-sweep').exists()).toBe(true);
+  expect(wrapper.get('progress').attributes('aria-label')).toBe(
+    'Automatic capture progress',
+  );
+  expect(vision.process).not.toHaveBeenCalled();
+  await advance(560);
+  expect(vision.process).toHaveBeenCalledOnce();
+  expect(vision.process).toHaveBeenCalledWith(expect.anything(), null, []);
+  expect(wrapper.get('[data-state]').attributes('data-state')).toBe('captured');
+  expect(wrapper.find('.accepted-region').exists()).toBe(true);
+  expect(useScanStore().pages[0]?.status).toBe('processing');
+  await advance(5000);
+  expect(useScanStore().pages).toHaveLength(1);
+});

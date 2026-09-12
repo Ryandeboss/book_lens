@@ -90,7 +90,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
     busy.value = true;
     const current = generation;
     machine.state = 'capturing';
-    machine.message = 'Capturing...';
+    machine.message = 'Scanning page... Keep still';
     try {
       // Manual capture can follow a pause or repositioning; refresh the geometry.
       if (manual) {
@@ -123,6 +123,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
             detection.value?.signature ?? [],
             performance.now(),
             detection.value?.content,
+            detection.value?.source,
           );
         return;
       }
@@ -148,6 +149,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
           performance.now(),
           `\u2713 Page ${session.pages.find((p) => p.id === id)!.pageNumber} scanned - Turn the page`,
           detection.value?.content,
+          detection.value?.source,
         );
         clearTimeout(feedbackTimer);
         feedbackTimer = setTimeout(

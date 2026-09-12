@@ -34,6 +34,7 @@ export interface DuplicateMatch {
   featureScore: number | null;
 }
 export interface Detection {
+  source?: 'page' | 'text';
   corners: Quad | null;
   aligned: boolean;
   alignment: number;

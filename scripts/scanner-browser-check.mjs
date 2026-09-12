@@ -1,4 +1,5 @@
 import { mkdir, writeFile } from 'node:fs/promises';
+const borderless = process.argv.includes('--borderless');
 const origin = process.argv[2] || 'http://localhost:5173';
 const debugOrigin = process.env.BROWSER_DEBUG_URL || 'http://localhost:9225';
 const tabs = await (await fetch(debugOrigin + '/json')).json();
@@ -66,8 +67,8 @@ try {
   });
   await call('Page.navigate', { url: origin + '/scan' });
   await wait("document.body.innerText.includes('Start Camera')");
-  await evaluate(`window.testPage=1;window.moving=true;window.workers=[];window.stops=0;const NativeWorker=window.Worker;window.Worker=class extends NativeWorker{constructor(...args){super(...args);window.workers.push(this)}terminate(){window.stops++;return super.terminate()}};
- navigator.mediaDevices.getUserMedia=async()=>{const c=document.createElement('canvas');c.width=900;c.height=1200;const ctx=c.getContext('2d');setInterval(()=>{ctx.fillStyle='#202520';ctx.fillRect(0,0,900,1200);if(!window.testPage)return;const offset=window.moving?Math.sin(Date.now()/90)*45:0;ctx.save();ctx.translate(offset,0);if(window.testPage===2)ctx.transform(1,.055,-.075,1,45,-25);ctx.fillStyle='#fffef2';ctx.fillRect(130,120,640,960);ctx.fillStyle='#111';ctx.font='bold 30px Georgia';ctx.fillText('BOOKLENS PAGE '+window.testPage,165,210);ctx.font='26px Georgia';for(let i=0;i<19;i++){const text=window.testPage===1?'The morning light filled the room.':'A different chapter begins today.';ctx.fillText(text,165,270+i*38)}ctx.restore();},50);const stream=c.captureStream(20);window.track=stream.getVideoTracks()[0];return stream;}`);
+  await evaluate(`window.testBorderless=${borderless};window.testPage=1;window.moving=true;window.workers=[];window.stops=0;const NativeWorker=window.Worker;window.Worker=class extends NativeWorker{constructor(...args){super(...args);window.workers.push(this)}terminate(){window.stops++;return super.terminate()}};
+ navigator.mediaDevices.getUserMedia=async()=>{const c=document.createElement('canvas');c.width=900;c.height=1200;const ctx=c.getContext('2d');setInterval(()=>{ctx.fillStyle=window.testBorderless?'#fffef2':'#202520';ctx.fillRect(0,0,900,1200);if(!window.testPage)return;const offset=window.moving?Math.sin(Date.now()/90)*45:0;ctx.save();ctx.translate(offset,0);if(window.testPage===2)ctx.transform(1,.055,-.075,1,45,-25);ctx.fillStyle='#fffef2';ctx.fillRect(130,120,640,960);ctx.fillStyle='#111';ctx.font='bold 30px Georgia';ctx.fillText('BOOKLENS PAGE '+window.testPage,165,210);ctx.font='26px Georgia';for(let i=0;i<19;i++){const text=window.testPage===1?'The morning light filled the room.':'A different chapter begins today.';ctx.fillText(text,165,270+i*38)}ctx.restore();},50);const stream=c.captureStream(20);window.track=stream.getVideoTracks()[0];return stream;}`);
   await evaluate(
     `window.ocrUploads=[];const originalFetch=window.fetch;window.fetch=async(...args)=>{const [url,options]=args;if(String(url).endsWith('/ocr')&&options?.body instanceof FormData){const capability=await originalFetch(String(url)+'/status');if(!capability.ok||(await capability.json()).googleDocumentAiConfigured!==false)throw new Error('Smoke check requires unconfigured cloud OCR; no image uploaded');const image=options.body.get('image');const info={type:image.type,bytes:image.size,pageId:options.body.get('pageId')};window.ocrUploads.push(info);const response=await originalFetch(...args);info.status=response.status;return response;}return originalFetch(...args);};`,
   );
@@ -89,6 +90,20 @@ try {
     throw new Error('Captured moving page');
   console.log('PASS motion prevents capture');
   await evaluate('window.moving=false');
+  await wait("!!document.querySelector('.scan-sweep')");
+  if (
+    !(await evaluate(
+      "!!document.querySelector('.text-body') && !!document.querySelector('.capture-progress')",
+    ))
+  )
+    throw new Error('Missing text outline or automatic progress');
+  await mkdir('.docker-local', { recursive: true });
+  const scanningShot = await call('Page.captureScreenshot', { format: 'png' });
+  await writeFile(
+    '.docker-local/auto-text-scanning.png',
+    Buffer.from(scanningShot.data, 'base64'),
+  );
+  console.log('PASS animated text outline and automatic capture progress');
   await wait(
     "document.querySelector('.counts')?.textContent.includes('1 captured')",
     45000,
@@ -201,7 +216,11 @@ try {
     'PASS corrected image upload, backend unavailable response, real Tesseract fallback',
     uploads,
   );
-  console.log('ALL PASS', origin);
+  console.log(
+    'ALL PASS',
+    origin,
+    borderless ? 'no visible page border' : 'visible page border',
+  );
 } catch (e) {
   console.log(await evaluate('document.body.innerText'));
   console.log('ERRORS', JSON.stringify(errors));

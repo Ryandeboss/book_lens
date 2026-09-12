@@ -10,8 +10,9 @@ export const scannerConfig = {
   alignmentTolerance: 0.16, // Relative to guide dimensions.
   minGuideCoverage: 0.58,
   stabilityMs: 750,
-  maxSampleGapMs: 650,
-  cornerMovement: 0.018, // Distance in normalized frame coordinates, from stability anchor.
+  stabilityMinSamples: 3,
+  maxSampleGapMs: 1500,
+  cornerMovement: 0.025, // Distance in normalized frame coordinates, from stability anchor.
   stableVisualDifference: 0.045,
   minSharpness: 35, // Variance of Laplacian in the page interior at analysis size.
   minBrightness: 45, // 0..255.
@@ -45,9 +46,13 @@ export const scannerConfig = {
   textLineMinWidth: 0.06,
   textLineMaxHeight: 0.09,
   textLineMergeGap: 0.065,
+  textCaptureMinLines: 3,
+  textCaptureMinWidth: 0.25,
+  textCaptureMinHeight: 0.12,
+  textCaptureMargin: 0.025,
   textBodyMinArea: 0.008, // Sparse headings remain eligible; body is optional.
   textBodyMargin: 0.015,
-  textBodyMovement: 0.025,
+  textBodyMovement: 0.04,
   pageAreaMovement: 0.1,
   pageChangeGray: 0.015,
   pageChangeEdges: 0.015,

@@ -55,3 +55,61 @@ export function estimateTextBody(lines: Guide[]): Guide | null {
     height: Math.min(1, best.box.y + best.box.height + margin) - y,
   };
 }
+
+// A missing paper edge may not veto a clearly visible block of printed lines.
+// Require several lines with breathing room; never auto-crop text at the guide edge.
+export function canCaptureTextBody(
+  lines: Guide[],
+  body: Guide | null,
+): boolean {
+  if (
+    !body ||
+    body.width < config.textCaptureMinWidth ||
+    body.height < config.textCaptureMinHeight
+  )
+    return false;
+  // A shorter central paragraph must not hide other lines cut by the crop.
+  if (
+    lines.some(
+      (r) =>
+        r.width >= config.textLineMinWidth &&
+        r.height > 0 &&
+        r.height <= config.textLineMaxHeight &&
+        (r.x <= 0.012 ||
+          r.y <= 0.012 ||
+          r.x + r.width >= 0.988 ||
+          r.y + r.height >= 0.988),
+    )
+  )
+    return false;
+  const margin = config.textCaptureMargin;
+  if (
+    body.x < margin ||
+    body.y < margin ||
+    body.x + body.width > 1 - margin ||
+    body.y + body.height > 1 - margin
+  )
+    return false;
+  const rows = lines
+    .filter(
+      (r) =>
+        r.width >= config.textLineMinWidth &&
+        r.height > 0 &&
+        r.height <= config.textLineMaxHeight &&
+        r.width / r.height >= 3 &&
+        r.x >= body.x &&
+        r.y >= body.y &&
+        r.x + r.width <= body.x + body.width &&
+        r.y + r.height <= body.y + body.height,
+    )
+    .sort((a, b) => a.y - b.y);
+  let count = 0,
+    lastBottom = -1;
+  for (const row of rows) {
+    if (row.y >= lastBottom) {
+      count++;
+      lastBottom = row.y + row.height;
+    }
+  }
+  return count >= config.textCaptureMinLines;
+}

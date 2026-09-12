@@ -16,7 +16,7 @@ import {
   polygonArea,
 } from './scannerGeometry';
 import { visualSignature, findRecentDuplicate } from './pageFingerprint';
-import { estimateTextBody } from './textBody';
+import { estimateTextBody, canCaptureTextBody } from './textBody';
 type OpenCv = typeof CV;
 
 function signature(cv: OpenCv, gray: CV.Mat) {
@@ -139,7 +139,10 @@ export function analyzePage(cv: OpenCv, bitmap: ImageBitmap): Detection {
           ) > 0.18,
       );
     if (ambiguous) best = null;
-    const bounds = best ?? guideCorners(guide);
+    // If the paper edge is incomplete/misaligned, inspect the guide for printed
+    // text instead. Use the guide crop, never invent perspective corners.
+    const boundaryAligned = best ? alignmentFor(best, guide).aligned : false;
+    const bounds = boundaryAligned ? best! : guideCorners(guide);
     const size = outputSize(bounds, src.cols, src.rows);
     const scale = Math.min(
       1,
@@ -236,7 +239,12 @@ export function analyzePage(cv: OpenCv, bitmap: ImageBitmap): Detection {
         line.delete();
       }
     }
-    const body = best ? estimateTextBody(boxes) : null;
+    const body = estimateTextBody(boxes);
+    const textCapture =
+      !boundaryAligned &&
+      !ambiguous &&
+      !wide &&
+      canCaptureTextBody(boxes, body);
     const matrix = inverse.data64F;
     const project = (x: number, y: number) => {
       const X = x * (w - 1),
@@ -269,13 +277,14 @@ export function analyzePage(cv: OpenCv, bitmap: ImageBitmap): Detection {
       ? alignmentFor(best, guide)
       : { aligned: false, score: 0 };
     return {
-      corners: best,
-      aligned: alignment.aligned,
+      source: textCapture ? 'text' : 'page',
+      corners: textCapture ? null : best,
+      aligned: alignment.aligned || textCapture,
       alignment: alignment.score,
       sharpness,
       brightness: cv.mean(roi)[0]!,
       signature: signature(cv, guideRoi).gray,
-      content: best ? signature(cv, page) : undefined,
+      content: boundaryAligned || textCapture ? signature(cv, page) : undefined,
       textBody,
       approximate,
       confidence: alignment.score,

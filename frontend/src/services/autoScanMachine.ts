@@ -14,12 +14,14 @@ export class AutoScanMachine {
   changeScore = 0;
   stableProgress = 0;
   private bodyAnchor: Quad | null = null;
+  private lockedSource: Detection['source'];
   private lockedContent: VisualSignature | undefined;
   private duplicateAt = -Infinity;
   duplicateNotifications = 0;
   private anchor: Quad | null = null;
   private stableSignature: number[] = [];
   private stableSince = 0;
+  private stableSamples = 0;
   private lastSample = 0;
   private lockedSignature: number[] | null = null;
   private changeSamples = 0;
@@ -27,6 +29,7 @@ export class AutoScanMachine {
 
   resetStability() {
     this.anchor = null;
+    this.stableSamples = 0;
     this.stableProgress = 0;
   }
   pause(message = 'Scanner paused') {
@@ -49,7 +52,9 @@ export class AutoScanMachine {
     now: number,
     label: string,
     content?: VisualSignature,
+    source?: Detection['source'],
   ) {
+    this.lockedSource = source;
     this.lockedContent = content;
     this.lockedSignature = [...signature];
     this.changeSamples = 0;
@@ -68,7 +73,9 @@ export class AutoScanMachine {
     signature: number[],
     now = performance.now(),
     content?: VisualSignature,
+    source?: Detection['source'],
   ) {
+    this.lockedSource = source;
     this.lockedSignature = [...signature];
     this.lockedContent = content;
     this.changeSamples = 0;
@@ -97,7 +104,7 @@ export class AutoScanMachine {
     // an immediate turn to a similar-looking page can be missed entirely.
     if (this.lockedSignature) {
       const content =
-        this.lockedContent && d.content
+        this.lockedContent && d.content && this.lockedSource === d.source
           ? contentChanged(d.content, this.lockedContent)
           : null;
       this.changeScore = content
@@ -124,7 +131,8 @@ export class AutoScanMachine {
       this.state = 'waitingForPageChange';
       return false;
     }
-    if (!d.corners) {
+    const geometry = d.corners ?? (d.source === 'text' ? d.textBody : null);
+    if (!geometry) {
       this.state = 'searching';
       this.message =
         d.hint === 'centerOnePage'
@@ -155,34 +163,42 @@ export class AutoScanMachine {
       return false;
     }
     this.state = 'stabilizing';
-    this.message = 'Hold steady...';
+    this.message = 'Hold steady - scanning automatically...';
     if (
       !this.anchor ||
-      cornerDistance(d.corners, this.anchor) > config.cornerMovement ||
-      Math.abs(polygonArea(d.corners) - polygonArea(this.anchor)) /
+      cornerDistance(geometry, this.anchor) >
+        (d.source === 'text'
+          ? config.textBodyMovement
+          : config.cornerMovement) ||
+      Math.abs(polygonArea(geometry) - polygonArea(this.anchor)) /
         Math.max(0.001, polygonArea(this.anchor)) >
         config.pageAreaMovement ||
       (d.textBody &&
         this.bodyAnchor &&
         cornerDistance(d.textBody, this.bodyAnchor) >
           config.textBodyMovement) ||
-      signatureDifference(d.signature, this.stableSignature) >
-        config.stableVisualDifference
+      signatureDifference(
+        d.content?.gray ?? d.signature,
+        this.stableSignature,
+      ) > config.stableVisualDifference
     ) {
-      this.anchor = d.corners;
+      this.anchor = geometry;
       this.bodyAnchor = d.textBody ?? null;
-      this.stableSignature = d.signature;
+      this.stableSignature = d.content?.gray ?? d.signature;
+      this.stableSamples = 1;
       this.stableSince = now;
       this.stableProgress = 0;
       return false;
     }
+    this.stableSamples++;
     this.stableProgress = Math.min(
       1,
+      this.stableSamples / config.stabilityMinSamples,
       (now - this.stableSince) / config.stabilityMs,
     );
     if (this.stableProgress < 1) return false;
     this.state = 'capturing';
-    this.message = 'Capturing...';
+    this.message = 'Scanning page... Keep still';
     return true;
   }
 }
