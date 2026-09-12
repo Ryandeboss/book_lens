@@ -130,7 +130,7 @@ watch(isActive, (value) => {
         />
       </CameraPreview>
       <p class="scanner-status" role="status" :data-state="machine.state">
-        {{ machine.message }}
+        {{ scanner.displayMessage.value }}
       </p>
       <progress
         v-if="machine.state === 'stabilizing' || machine.state === 'capturing'"
@@ -189,6 +189,21 @@ watch(isActive, (value) => {
           JSON.stringify(
             {
               state: machine.state,
+              cameraSettings: scanner.cameraSettings.value,
+              cameraResolution: [width, height],
+              analysisResolution: [
+                detection?.analysisWidth,
+                detection?.analysisHeight,
+              ],
+              analysisDurationMs: scanner.analysisDuration.value,
+              captureSource: scanner.captureSource.value,
+              blockedGate: detection?.gate,
+              motionDifference: detection?.motionDifference,
+              coverage: detection?.coverage,
+              textPresent: detection?.textPresent,
+              stableSamples: machine.stableSamples,
+              stableDurationMs: machine.stableDuration,
+              queueLength: pending,
               detectionSource: detection?.source,
               marginInk: detection?.marginInk,
               corners: detection?.corners,

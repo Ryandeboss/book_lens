@@ -23,9 +23,11 @@ A mobile-first web application for turning printed pages into editable text. Boo
 
 ## Scan a book
 
-Run `npm.cmd run dev` and open http://localhost:5173/scan. Start Camera, allow access, and show one page with blank space around its printed text. BookLens finds a text rectangle across the preview, checks its surrounding margin, then waits for readable focus and lighting. No paper outline or alignment with a fixed portrait guide is required. A short stable hold triggers the picture automatically; the detected text flashes green and you can turn the page immediately.
+Run `npm.cmd run dev` and open http://localhost:5173/scan. Start Camera, allow access, and hold one page in view. BookLens first checks motion, then finds the page boundary, checks lighting/focus, and looks for printed text. When page edges are unclear, a central region with a clear text block can qualify. A strong page boundary also allows sharp title pages and illustrated pages. Hold steady for about half a second; the outlined region flashes green when the picture is accepted, then turn the page immediately.
 
-The sweep/progress display reflects capture readiness, not completion of Google OCR. The complete photograph is sent to background OCR so headings and footnotes outside the main text rectangle remain available. Keep only the intended page in view. Holding the same page does not scan it twice. Recent-page matching uses the detected text area so blank paper/background do not dominate duplicate decisions.
+The sweep/progress display reflects capture readiness, not completion of Google OCR. The detected page is perspective-corrected, including headings and footnotes. Without reliable page corners, the full visible photograph is retained. Native still-photo capture is preferred where supported; otherwise BookLens captures the actual video resolution. The browser preview runs independently of analysis (at most about six checks/second). Holding the same page does not scan it twice. Recent-page matching uses compact content fingerprints and optional ORB features, without retaining full photos.
+
+See the [automatic capture report and phone tuning checklist](docs/automatic-capture-verification.md) for the exact gates, compatibility fallbacks, tests, and settings. Physical iPhone/Android testing is still required.
 
 Pause stops automatic acceptance. Resume restarts detection; Manual Capture bypasses the stability/quality gates and refreshes detection before photographing the visible preview. Manual captures still use duplicate protection and the OCR queue. Stop Camera releases the camera; accepted pages remain available in Review. Backgrounding pauses scanning and requires an explicit Resume.
 

@@ -22,7 +22,8 @@ export class AutoScanMachine {
   private previousGeometry: Quad | null = null;
   private stableSignature: number[] = [];
   private stableSince = 0;
-  private stableSamples = 0;
+  stableSamples = 0;
+  stableDuration = 0;
   private lastSample = 0;
   private lockedSignature: number[] | null = null;
   private changeSamples = 0;
@@ -33,6 +34,7 @@ export class AutoScanMachine {
     this.previousGeometry = null;
     this.stableSamples = 0;
     this.stableProgress = 0;
+    this.stableDuration = 0;
   }
   pause(message = 'Scanner paused') {
     this.resetStability();
@@ -133,6 +135,21 @@ export class AutoScanMachine {
       this.state = 'waitingForPageChange';
       return false;
     }
+    if (d.gate === 'motion') {
+      this.state = 'detected';
+      this.message = 'Hold steady';
+      this.resetStability();
+      return false;
+    }
+    if (d.gate === 'lighting' || d.gate === 'sharpness') {
+      this.state = 'detected';
+      this.message =
+        d.gate === 'lighting'
+          ? 'More light needed'
+          : 'Image too blurry. Hold steady.';
+      this.resetStability();
+      return false;
+    }
     const geometry = d.corners ?? (d.source === 'text' ? d.textBody : null);
     if (!geometry) {
       this.state = 'searching';
@@ -207,9 +224,11 @@ export class AutoScanMachine {
       this.stableSamples = 1;
       this.stableSince = now;
       this.stableProgress = 0;
+      this.stableDuration = 0;
       return false;
     }
     this.stableSamples++;
+    this.stableDuration = now - this.stableSince;
     this.stableProgress = Math.min(
       1,
       this.stableSamples / config.stabilityMinSamples,

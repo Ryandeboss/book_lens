@@ -71,8 +71,21 @@ export function alignmentFor(corners: Quad, guide: Guide) {
       p.x < 1 - config.edgeMargin &&
       p.y < 1 - config.edgeMargin,
   );
+  const lengths = corners.map((p, i) =>
+    Math.hypot(p.x - corners[(i + 1) % 4]!.x, p.y - corners[(i + 1) % 4]!.y),
+  );
+  const perspective =
+    Math.min(lengths[0]!, lengths[2]!) / Math.max(lengths[0]!, lengths[2]!) >=
+      config.pageOppositeEdgeRatio &&
+    Math.min(lengths[1]!, lengths[3]!) / Math.max(lengths[1]!, lengths[3]!) >=
+      config.pageOppositeEdgeRatio;
   return {
-    aligned: within && centered && visible && area >= config.minGuideCoverage,
+    aligned:
+      within &&
+      centered &&
+      visible &&
+      perspective &&
+      area >= config.minGuideCoverage,
     score: Math.min(1, area) * (within && centered && visible ? 1 : 0.5),
   };
 }

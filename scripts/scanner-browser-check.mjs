@@ -1,4 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
+const noOffscreen = process.argv.includes('--no-offscreen');
+const nativePhoto = process.argv.includes('--native-photo');
 const borderless = process.argv.includes('--borderless');
 const origin = process.argv[2] || 'http://localhost:5173';
 const debugOrigin = process.env.BROWSER_DEBUG_URL || 'http://localhost:9225';
@@ -67,8 +69,12 @@ try {
   });
   await call('Page.navigate', { url: origin + '/scan' });
   await wait("document.body.innerText.includes('Start Camera')");
-  await evaluate(`window.testBorderless=${borderless};window.testPage=1;window.moving=true;window.workers=[];window.stops=0;const NativeWorker=window.Worker;window.Worker=class extends NativeWorker{constructor(...args){super(...args);window.workers.push(this)}terminate(){window.stops++;return super.terminate()}};
- navigator.mediaDevices.getUserMedia=async()=>{const c=document.createElement('canvas');c.width=900;c.height=1200;const ctx=c.getContext('2d');setInterval(()=>{ctx.fillStyle=window.testBorderless?'#fffef2':'#202520';ctx.fillRect(0,0,900,1200);if(!window.testPage)return;const offset=window.moving?Math.sin(Date.now()/90)*45:0;ctx.save();ctx.translate(offset,0);if(window.testPage===2)ctx.transform(1,.055,-.075,1,45,-25);ctx.fillStyle='#fffef2';ctx.fillRect(130,120,640,960);ctx.fillStyle='#111';ctx.font='bold 30px Georgia';ctx.fillText('BOOKLENS PAGE '+window.testPage,165,210);ctx.font='26px Georgia';for(let i=0;i<19;i++){const text=window.testPage===1?'The morning light filled the room.':'A different chapter begins today.';ctx.fillText(text,165,270+i*38)}ctx.restore();},50);const stream=c.captureStream(20);window.track=stream.getVideoTracks()[0];return stream;}`);
+  await evaluate(`window.noOffscreen=${noOffscreen};window.nativePhoto=${nativePhoto};
+    if(window.noOffscreen)window.OffscreenCanvas=undefined;
+    if(window.nativePhoto)window.ImageCapture=class{async takePhoto(){const c=document.createElement('canvas');c.width=1600;c.height=1600;const q=c.getContext('2d');q.fillStyle='#202520';q.fillRect(0,0,1600,1600);q.drawImage(window.cameraCanvas,200,0,1200,1600);return new Promise(r=>c.toBlob(r,'image/jpeg',.96));}};
+  `);
+  await evaluate(`window.testBorderless=${borderless};window.testPage=1;window.moving=true;window.workers=[];window.stops=0;window.analysisTimes=[];window.analysisStarts=[];const NativeWorker=window.Worker;window.Worker=class extends NativeWorker{constructor(...args){let boot;if(window.noOffscreen && String(args[0]).includes('imageProcessing')){boot=URL.createObjectURL(new Blob(['self.OffscreenCanvas=undefined;const queued=[];self.onmessage=e=>queued.push(e);await import('+JSON.stringify(String(args[0]))+');for(const e of queued)self.onmessage(e);'],{type:'text/javascript'}));args[0]=boot;}super(...args);this.boot=boot;this.jobs=new Map();this.addEventListener('message',e=>{const start=this.jobs.get(e.data.id);if(start!==undefined){window.analysisTimes.push(performance.now()-start);this.jobs.delete(e.data.id);}});window.workers.push(this)}postMessage(message,...rest){if(message.type==='analyze'){const now=performance.now();this.jobs.set(message.id,now);window.analysisStarts.push(now);}return super.postMessage(message,...rest);}terminate(){if(this.boot)URL.revokeObjectURL(this.boot);window.stops++;return super.terminate()}};
+ navigator.mediaDevices.getUserMedia=async()=>{const c=document.createElement('canvas');c.width=900;c.height=1200;window.cameraCanvas=c;const ctx=c.getContext('2d');setInterval(()=>{ctx.fillStyle=window.testBorderless?'#fffef2':'#202520';ctx.fillRect(0,0,900,1200);if(!window.testPage)return;const offset=window.moving?Math.sin(Date.now()/90)*45:0;ctx.save();ctx.translate(offset,0);if(window.testPage===2)ctx.transform(1,.055,-.075,1,45,-25);ctx.fillStyle='#fffef2';ctx.fillRect(130,120,640,960);ctx.fillStyle='#111';ctx.font='bold 30px Georgia';ctx.fillText('BOOKLENS PAGE '+window.testPage,165,210);ctx.font='26px Georgia';for(let i=0;i<19;i++){const text=window.testPage===1?'The morning light filled the room.':'A different chapter begins today.';ctx.fillText(text,165,270+i*38)}ctx.restore();},50);const stream=c.captureStream(20);window.track=stream.getVideoTracks()[0];return stream;}`);
   await evaluate(
     `window.ocrUploads=[];const originalFetch=window.fetch;window.fetch=async(...args)=>{const [url,options]=args;if(String(url).endsWith('/ocr')&&options?.body instanceof FormData){const capability=await originalFetch(String(url)+'/status');if(!capability.ok||(await capability.json()).googleDocumentAiConfigured!==false)throw new Error('Smoke check requires unconfigured cloud OCR; no image uploaded');const image=options.body.get('image');const info={type:image.type,bytes:image.size,pageId:options.body.get('pageId')};window.ocrUploads.push(info);const response=await originalFetch(...args);info.status=response.status;return response;}return originalFetch(...args);};`,
   );
@@ -215,6 +221,12 @@ try {
   console.log(
     'PASS corrected image upload, backend unavailable response, real Tesseract fallback',
     uploads,
+  );
+  console.log(
+    'ANALYSIS',
+    await evaluate(
+      `(()=>{const d=window.analysisTimes.slice(1).sort((a,b)=>a-b),t=window.analysisStarts;return {samples:d.length,medianMs:d[Math.floor(d.length*.5)],p95Ms:d[Math.floor(d.length*.95)],averageHz:t.length>1?1000*(t.length-1)/(t[t.length-1]-t[0]):0};})()`,
+    ),
   );
   console.log(
     'ALL PASS',

@@ -2,6 +2,11 @@
 export const scannerConfig = {
   analysisIntervalMs: 170, // At most ~6 checks/sec; only one analysis job in flight.
   analysisMaxEdge: 640,
+  motionSize: 64, // Tiny grayscale ROI; higher sizes cost more per tick.
+  motionDifference: 0.022, // Exposure-centered mean absolute difference / 255.
+  stillTimeoutMs: 1800, // One native shutter attempt, then video fallback.
+  pageOppositeEdgeRatio: 0.45, // Reject extreme perspective; allow book curl.
+  statusHoldMs: 220, // Debounce ordinary guidance, never success/errors.
   guideAspect: 0.72, // Portrait page guide, not an enforced page aspect ratio.
   guideCoverage: 0.84,
   minPageArea: 0.12, // Fraction of camera frame.

@@ -2,11 +2,41 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { usePageDetection } from './usePageDetection';
 import { scannerConfig } from '../config/scanner';
+const encodePixels = vi.hoisted(() => vi.fn());
+vi.mock('../services/stillCapture', () => ({ encodePixels }));
 let wrapper: ReturnType<typeof mount>;
 afterEach(() => {
   wrapper?.unmount();
   vi.unstubAllGlobals();
+  encodePixels.mockReset();
   vi.useRealTimers();
+});
+
+it('transfers pixel buffers and cancels fallback encoding before a late blob arrives', async () => {
+  const { worker, vision } = setup();
+  let complete!: (blob: Blob) => void;
+  encodePixels.mockImplementation(
+    () =>
+      new Promise<Blob>((r) => {
+        complete = r;
+      }),
+  );
+  const frame = { width: 2, height: 2, data: new Uint8ClampedArray(16) };
+  const result = vision.process(frame, null);
+  expect(worker.postMessage).toHaveBeenCalledWith(
+    expect.objectContaining({ bitmap: frame }),
+    [frame.data.buffer],
+  );
+  worker.onmessage!({
+    data: {
+      id: 1,
+      result: { pixels: frame, width: 2, height: 2, fingerprint: [] },
+    },
+  } as MessageEvent);
+  const rejection = expect(result).rejects.toThrow('stopped');
+  vision.terminate();
+  await rejection;
+  complete(new Blob(['late']));
 });
 function setup() {
   const worker = {

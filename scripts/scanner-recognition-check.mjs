@@ -62,11 +62,12 @@ try {
   await wait("document.body.innerText.includes('Start Camera')");
   const result = await evaluate(`(async()=>{
     const {AutoScanMachine}=await import('/src/services/autoScanMachine.ts');
+    const {featureSimilarity}=await import('/src/services/pageFingerprint.ts');
     const worker=new Worker('/src/workers/imageProcessing.worker.ts',{type:'module'});
     let id=0; const pending=new Map();
     worker.onmessage=e=>{const job=pending.get(e.data.id);pending.delete(e.data.id);e.data.error?job.reject(new Error(e.data.error)):job.resolve(e.data.result);};
     worker.onerror=e=>{for(const job of pending.values())job.reject(new Error(e.message));pending.clear();};
-    const request=async(type,canvas,corners=null,recent=[],textBody=null)=>{const bitmap=await createImageBitmap(canvas);return new Promise((resolve,reject)=>{const key=++id;pending.set(key,{resolve,reject});worker.postMessage({id:key,type,bitmap,corners,recent,textBody},[bitmap]);});};
+    const request=async(type,canvas,corners=null,recent=[],textBody=null,still=true)=>{const bitmap=await createImageBitmap(canvas);return new Promise((resolve,reject)=>{const key=++id;pending.set(key,{resolve,reject});worker.postMessage({id:key,type,bitmap,corners,recent,textBody,still},[bitmap]);});};
     function fixture(kind='text',variant=0){
       if(kind==='camera-tilt'){
         const c=document.createElement('canvas');c.width=900;c.height=1200;const q=c.getContext('2d');q.fillStyle='#202520';q.fillRect(0,0,900,1200);q.transform(1,.055,-.075,1,45,-25);q.fillStyle='#fffef2';q.fillRect(130,120,640,960);q.fillStyle='#111';q.font='bold 30px Georgia';q.fillText('BOOKLENS PAGE 2',165,210);q.font='26px Georgia';for(let i=0;i<19;i++)q.fillText('A different chapter begins today.',165,270+i*38);const out=document.createElement('canvas');out.width=480;out.height=640;out.getContext('2d').drawImage(c,0,0,480,640);return out;
@@ -92,17 +93,36 @@ try {
     const output=[];
     try {
       const canvas=fixture(), detection=await request('analyze',canvas);
-      if(!detection.aligned||!detection.textBody||detection.source!=='text')throw new Error('Missing text rectangle: '+JSON.stringify({body:detection.textBody,margin:detection.marginInk}));
+      if(!detection.aligned||!detection.textBody||detection.source!=='page')throw new Error('Missing text rectangle: '+JSON.stringify({body:detection.textBody,margin:detection.marginInk}));
       const first=await request('process',canvas,detection.captureCorners,[],detection.textBody);
       const recent=[{id:'first',pageNumber:1,fingerprint:first.visualFingerprint}];
       for(const kind of ['text','shifted','tilted','dim','gutter','title','image','spread','borderless','blank','dark','blur','camera-tilt']){
         const c=fixture(kind),d=await request('analyze',c);
         const machine=new AutoScanMachine();let accepted=false;
         for(let t=0;t<1100;t+=170)accepted=machine.sample(d,t)||accepted;
-        if(['blank','dark','blur','title','spread'].includes(kind)){
+        if(['blank','dark','blur','spread'].includes(kind)){
           if(accepted)throw new Error('Should wait for text/quality '+kind+' '+JSON.stringify({body:d.textBody,margin:d.marginInk,sharpness:d.sharpness,brightness:d.brightness}));
-        } else if(kind!=='image'&&!accepted)throw new Error('Text-first capture blocked '+kind+' '+JSON.stringify({body:d.textBody,margin:d.marginInk,sharpness:d.sharpness,brightness:d.brightness}));
+        } else if(!accepted)throw new Error('Automatic capture blocked '+kind+' '+JSON.stringify({body:d.textBody,margin:d.marginInk,sharpness:d.sharpness,brightness:d.brightness}));
         output.push({case:kind,accepted,marginInk:d.marginInk,sharpness:d.sharpness,brightness:d.brightness,message:machine.message});
+      }
+      // Production analysis includes a stateful motion gate; diagnostic stills above bypass it.
+      const initial=await request('analyze',canvas,null,[],null,false);
+      if(initial.gate!=='motion'||initial.textBody||initial.sharpness!==0)throw new Error('Motion must short circuit downstream gates');
+      let stable;
+      for(let i=0;i<4;i++)stable=await request('analyze',canvas,null,[],null,false);
+      if(stable.gate!=='ready')throw new Error('Stable samples did not clear motion gate');
+      const movement=await request('analyze',fixture('blank'),null,[],null,false);
+      if(movement.gate!=='motion')throw new Error('Large scene movement must stop analysis');
+      output.push({case:'motion-short-circuit-and-recovery',gate:movement.gate});
+      for(const kind of ['shifted','tilted','dim']) {
+        const c=fixture(kind),d=await request('analyze',c),p=await request('process',c,d.captureCorners,recent,d.textBody);
+        if(kind==='tilted' && !p.duplicateMatch?.duplicate) {
+          const evidence=featureSimilarity(p.visualFingerprint.features,first.visualFingerprint.features);
+          if(evidence!==0)throw new Error('Unexpected tilted comparison evidence');
+          output.push({case:'tilted-repeat-insufficient-evidence',duplicate:false,featureScore:evidence});continue;
+        }
+        if(!p.duplicateMatch?.duplicate)throw new Error('Repeated page not matched '+kind+' '+JSON.stringify(p.duplicateMatch));
+        output.push({case:'duplicate-'+kind,duplicate:p.duplicateMatch.duplicate});
       }
       const same=await request('process',canvas,detection.captureCorners,recent,detection.textBody);
       if(!same.duplicateMatch?.duplicate)throw new Error('Same picture must be rejected');

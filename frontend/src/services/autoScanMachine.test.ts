@@ -245,3 +245,16 @@ it('does not capture sharp text oscillating inside the overall position toleranc
     ).toBe(false);
   }
 });
+
+it('resets the consecutive window on motion even with apparently perfect corners', () => {
+  const machine = new AutoScanMachine();
+  expect(machine.sample(page(), 0)).toBe(false);
+  expect(machine.sample(page(), 170)).toBe(false);
+  expect(machine.sample({ ...page(), gate: 'motion' }, 340)).toBe(false);
+  expect(machine.stableSamples).toBe(0);
+  expect(machine.sample(page(), 510)).toBe(false);
+  expect(machine.sample(page(), 680)).toBe(false);
+  expect(machine.sample(page(), 850)).toBe(false);
+  expect(machine.sample(page(), 1020)).toBe(true);
+  expect(machine.sample(page(), 1190)).toBe(false);
+});

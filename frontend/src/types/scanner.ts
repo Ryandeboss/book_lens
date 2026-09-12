@@ -34,6 +34,12 @@ export interface DuplicateMatch {
   featureScore: number | null;
 }
 export interface Detection {
+  gate?: 'motion' | 'page' | 'lighting' | 'sharpness' | 'text' | 'ready';
+  motionDifference?: number;
+  coverage?: number;
+  textPresent?: boolean;
+  analysisWidth?: number;
+  analysisHeight?: number;
   source?: 'page' | 'text';
   captureCorners?: Quad;
   marginInk?: number;
@@ -68,18 +74,27 @@ export interface ProcessedImage {
   width: number;
   height: number;
 }
+export interface PixelFrame {
+  width: number;
+  height: number;
+  data: Uint8ClampedArray;
+}
+export type VisionFrame = ImageBitmap | PixelFrame;
+export type RawProcessedImage = Omit<ProcessedImage, 'blob'> & {
+  pixels: PixelFrame;
+};
 export type VisionRequest =
-  | { id: number; type: 'analyze'; bitmap: ImageBitmap }
+  | { id: number; type: 'analyze'; bitmap: VisionFrame; still?: boolean }
   | {
       id: number;
       type: 'process';
-      bitmap: ImageBitmap;
+      bitmap: VisionFrame;
       corners: Quad | null;
       recent?: RecentPage[];
       textBody?: Quad | null;
     };
 export type VisionResponse = {
   id: number;
-  result?: Detection | ProcessedImage;
+  result?: Detection | ProcessedImage | RawProcessedImage;
   error?: string;
 };

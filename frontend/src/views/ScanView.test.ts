@@ -17,6 +17,25 @@ const vision = vi.hoisted(() => ({
 vi.mock('../composables/usePageDetection', () => ({
   usePageDetection: () => vision,
 }));
+const stillMode = vi.hoisted(() => ({ source: 'video' as 'photo' | 'video' }));
+vi.mock('../services/stillCapture', () => ({
+  canvasFrame: (canvas: HTMLCanvasElement) => createImageBitmap(canvas),
+  captureStill: async (video: HTMLVideoElement) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas
+      .getContext('2d')!
+      .drawImage(video, 0, 0, canvas.width, canvas.height);
+    return { blob: new Blob(['frame']), source: stillMode.source };
+  },
+  decodeStill: async () => {
+    const c = document.createElement('canvas');
+    c.width = 1920;
+    c.height = 1080;
+    return c;
+  },
+}));
 const getUserMedia = vi.fn(),
   stop = vi.fn(),
   drawImage = vi.fn();
@@ -38,6 +57,7 @@ const page = (): Detection => ({
   signature: [0.1, -0.1],
 });
 beforeEach(async () => {
+  stillMode.source = 'video';
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
   vision.analyze.mockResolvedValue(page());
   vision.process.mockResolvedValue({
@@ -208,6 +228,7 @@ describe('continuous scan screen', () => {
     );
     vision.analyze.mockRejectedValueOnce(new Error('worker failed'));
     await ready();
+    await advance(1);
     expect(wrapper.get('[data-state]').attributes('data-state')).toBe('error');
     const calls = vision.analyze.mock.calls.length;
     await advance(2000);
@@ -320,5 +341,123 @@ it('automatically scans text without page edges and shows progress before green 
   expect(wrapper.find('.accepted-region').exists()).toBe(true);
   expect(useScanStore().pages[0]?.status).toBe('processing');
   await advance(5000);
+  expect(useScanStore().pages).toHaveLength(1);
+});
+
+it('invalidates an in-flight analysis across Pause and immediate Resume', async () => {
+  let complete!: (d: Detection) => void;
+  vision.analyze.mockImplementationOnce(
+    () =>
+      new Promise<Detection>((r) => {
+        complete = r;
+      }),
+  );
+  await ready();
+  await advance(1);
+  await button('Pause').trigger('click');
+  await button('Resume').trigger('click');
+  complete({ ...page(), sharpness: 0 });
+  await flushPromises();
+  expect(wrapper.text()).not.toContain('blurry');
+  await advance(1100);
+  expect(useScanStore().pages).toHaveLength(1);
+});
+it.each(['Pause', 'Done', 'Stop Camera'])(
+  'discards pending image processing after %s',
+  async (action) => {
+    let complete!: (value: unknown) => void;
+    vision.process.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          complete = r;
+        }),
+    );
+    await ready();
+    await advance(800);
+    expect(vision.process).toHaveBeenCalledOnce();
+    await button(action).trigger('click');
+    complete({
+      blob: new Blob(['late']),
+      fingerprint: [0.1],
+      width: 800,
+      height: 1100,
+    });
+    await flushPromises();
+    expect(useScanStore().pages).toHaveLength(0);
+  },
+);
+it('schedules on video frames and never overlaps a busy worker', async () => {
+  const callbacks = new Map<number, VideoFrameRequestCallback>();
+  let id = 0;
+  Object.defineProperty(
+    HTMLVideoElement.prototype,
+    'requestVideoFrameCallback',
+    {
+      configurable: true,
+      value: (cb: VideoFrameRequestCallback) => {
+        callbacks.set(++id, cb);
+        return id;
+      },
+    },
+  );
+  Object.defineProperty(
+    HTMLVideoElement.prototype,
+    'cancelVideoFrameCallback',
+    { configurable: true, value: (key: number) => callbacks.delete(key) },
+  );
+  try {
+    let complete!: (d: Detection) => void;
+    vision.analyze.mockImplementationOnce(
+      () =>
+        new Promise<Detection>((r) => {
+          complete = r;
+        }),
+    );
+    await ready();
+    expect(vision.analyze).not.toHaveBeenCalled();
+    const cb = callbacks.get(id)!;
+    callbacks.delete(id);
+    cb(170, {} as VideoFrameCallbackMetadata);
+    await flushPromises();
+    expect(vision.analyze).toHaveBeenCalledOnce();
+    await advance(1000);
+    expect(vision.analyze).toHaveBeenCalledOnce();
+    complete(page());
+    await flushPromises();
+    expect(callbacks.size).toBe(1);
+    await button('Pause').trigger('click');
+    expect(callbacks.size).toBe(0);
+  } finally {
+    Reflect.deleteProperty(
+      HTMLVideoElement.prototype,
+      'requestVideoFrameCallback',
+    );
+    Reflect.deleteProperty(
+      HTMLVideoElement.prototype,
+      'cancelVideoFrameCallback',
+    );
+  }
+});
+
+it('re-detects native photo coordinates instead of scaling preview corners across different fields of view', async () => {
+  stillMode.source = 'photo';
+  const native = {
+    ...page(),
+    corners: page().corners!.map((p) => ({
+      x: p.x * 0.8 + 0.05,
+      y: p.y * 0.9 + 0.03,
+    })) as Detection['corners'],
+  };
+  vision.analyze.mockImplementation(async (_frame: unknown, still?: boolean) =>
+    still ? native : page(),
+  );
+  await ready();
+  await advance(900);
+  expect(vision.process).toHaveBeenCalledWith(
+    expect.anything(),
+    native.corners,
+    [],
+    null,
+  );
   expect(useScanStore().pages).toHaveLength(1);
 });
