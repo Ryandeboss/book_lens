@@ -6,6 +6,8 @@ export interface OcrParagraph {
 }
 export interface CloudOcrResult {
   provider: 'google-document-ai';
+  confidence?: number; // 0–100, derived from complete token coverage.
+  confidenceMethod?: 'token-character-weighted';
   text: string;
   paragraphs: OcrParagraph[];
   detectedLanguages: string[];

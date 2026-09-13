@@ -3,12 +3,12 @@
 ## What the user sees
 
 1. Center a page and hold it still with sufficient light and focus.
-2. The animated outline shows readiness. Green means **shot saved in temporary memory**.
+2. A temporary photo is read by OCR. Keep the page in view. Green means **OCR confidence reached at least 85% and the shot was accepted**.
 3. Turn the page during the two-second pause. The camera then seeks another clear shot.
-4. OCR and optional cleanup run behind the scenes; press Done when finished photographing.
+4. AI cleanup runs behind the scenes. The OCR confidence check must finish before each acceptance; press Done when finished photographing.
 5. Keep the tab open until processing finishes. Review, undo corrections or restore duplicates, then Download TXT.
 
-There is no visual page-turn lock. Repeated photos are allowed and checked after OCR. The queue retains at most 30 pending images / 48 MiB, with one active OCR/cleanup job by default (two configurable through the existing OCR setting). At the limit it waits for capacity. A failed OCR image can be retried within the existing two-image / 12 MiB retry cache. Success releases the image after the job; reset releases the queue. These are temporary browser objects, not durable saved photos.
+Low or unavailable confidence pauses without saving the candidate or using a page number. Improve the camera position, lighting or focus, then Resume. Manual Capture has the same confidence requirement. Rejected images are released; they do not go to AI cleanup. Repeated paid OCR is not triggered automatically on rejection. There is no visual page-turn lock. Repeated photos are allowed and checked after OCR. The queue retains at most 30 pending images / 48 MiB, with one active cleanup job by default (two configurable through the existing OCR setting). At the limit it waits for capacity. A failed OCR image can be retried within the existing two-image / 12 MiB retry cache. Success releases the image after the job; reset releases the queue. These are temporary browser objects, not durable saved photos.
 
 ## Enable OpenAI on Render
 
@@ -63,8 +63,18 @@ Automated tests mock OpenAI and Google, covering cleanup success/failure/cancell
 
 ## Verification for this change
 
-- 149 automated tests pass (113 frontend, 36 backend); paid provider calls are mocked.
+- Confidence-gate tests cover scores below/exactly/above 85%, missing/invalid scores, blank text, cancellation, no page-number consumption on rejection and reuse of accepted OCR without another paid call. Paid provider calls are mocked.
 - Lint, TypeScript checks and frontend/backend production builds pass. Docker images build and Nginx/API start healthy.
 - Real Edge browser checks use generated moving/still camera frames, real OpenCV correction, real multipart uploads to the credential-free backend, and real Tesseract fallback. They verify the saved-shot flash, no analysis during the two-second pause, repeated capture while processing continues, duplicate-text exclusion, page order, Done drain and worker/camera cleanup.
 - The borderless-page variant also deliberately breaks worker canvas support and verifies the pixel-transfer recovery path. Both browser variants pass without paid requests.
 - Physical phone autofocus/lighting and real OpenAI/Google transcription quality remain manual checks. Older scanner verification documents describe the previous visual page-lock behavior; this document describes the current photo-first flow.
+
+## Confidence semantics
+
+Google Document AI provides confidence on token layouts. BookLens derives a character-weighted mean of the token scores, reported on a 0-100 scale, **only when scored token anchors cover all recognized text**. Missing/invalid scores or incomplete coverage leave confidence unavailable and the shot is not accepted. Paragraph confidence keeps Google's original 0-1 scale and is not used for acceptance. See the [Document AI layout/token reference](https://docs.cloud.google.com/document-ai/docs/reference/rest/v1/Document#Layout).
+
+Tesseract already reports its OCR confidence on a 0-100 scale. Both engines use the same inclusive 85-point acceptance threshold; blank text cannot pass. These scores estimate the engine's certainty, not a guarantee that 85% of the words are correct, and scores from different engines are not perfectly calibrated against each other. AI cleanup cannot raise the acceptance score: it runs only after acceptance. The accepted OCR result is reused for cleanup/review, avoiding a second OCR call.
+
+Pause, Stop, Done and navigation abort the confidence check and discard late results. Previously accepted pages and their background cleanup remain intact. No additional environment variable is required; the threshold is in `frontend/src/services/ocrAcceptance.ts`.
+
+The confidence-gate change passes 172 automated tests (135 frontend, 37 backend), lint, typechecks, production builds and Docker. A real browser run with generated pages confirms successful Tesseract OCR before green acceptance, continued cleanup, duplicate exclusion and resource cleanup. Real Google confidence extraction is covered by mocked token/layout tests; physical phone and configured Google quality checks remain manual.

@@ -4,6 +4,37 @@ import {
   normalizeFormatting,
   resolveTextAnchor,
 } from '../src/services/documentText.js';
+it('derives a 0–100 token-character-weighted score only with complete scored coverage', () => {
+  const document = {
+    text: 'AB CDEFGH',
+    pages: [
+      {
+        tokens: [
+          {
+            layout: {
+              confidence: 0.7,
+              textAnchor: { textSegments: [{ endIndex: 3 }] },
+            },
+          },
+          {
+            layout: {
+              confidence: 0.9,
+              textAnchor: { textSegments: [{ startIndex: 3, endIndex: 9 }] },
+            },
+          },
+        ],
+      },
+    ],
+  };
+  expect(normalizeDocument(document)).toMatchObject({
+    confidence: 85,
+    confidenceMethod: 'token-character-weighted',
+  });
+  document.pages[0]!.tokens[1]!.layout.confidence = NaN;
+  expect(normalizeDocument(document)).not.toHaveProperty('confidence');
+  document.pages[0]!.tokens.pop();
+  expect(normalizeDocument(document)).not.toHaveProperty('confidence');
+});
 it('resolves omitted start, multiple segments, long/string indices and Unicode characters', () => {
   expect(
     resolveTextAnchor('A\u{1f600} caf\u00e9 end', {

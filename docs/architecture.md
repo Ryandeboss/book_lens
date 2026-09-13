@@ -62,39 +62,14 @@ Vite environment values are build-time public settings. Express environment valu
 ## Continuous scanning and cloud OCR
 
 ```text
-CameraPreview video (useCamera owns tracks)
-   |
-   +-> 640px analysis frame, at most ~6/sec; video-frame callback or timer
-   |       |
-   |       v
-   |   usePageDetection -> OpenCV Web Worker
-   |       | motion -> page ROI -> lighting/focus -> optional text overlay
-   |       v
-   |   AutoScanMachine: alignment + stability + two-second capture pause
-   |       |
-   +-------+-> ImageCapture photo or video Blob, capped at 8 MP
-               |
-               v
-        OpenCV worker: perspective warp, grayscale, contrast normalization
-               |
-        high-quality JPEG (0.94) or PNG when smaller
-               |
-        compact fingerprints retained; no visual duplicate rejection
-               |
-        reserve shot position; green confirmation; pause capture for 2 seconds
-               |
-        App-owned OCR queue (max 30 images / 48 MiB, active job included)
-               |
-        POST /api/ocr -> Render/Express -> Google Document AI v1
-               |                            |
-               | failure -> Tesseract       | text/paragraphs/languages
-               +----------------------------+
-               |
-        optional /api/proofread -> OpenAI text cleanup
-               |
-        update original page ID; detect duplicate text; release image
-               |
-        Done drains queue -> Review -> edit/delete -> TXT
+CameraPreview -> OpenCV motion/page/light/focus checks -> stable trial photo
+    -> perspective correction / compressed JPEG or PNG
+    -> queue.inspect -> Google Document AI (Tesseract fallback)
+    -> confidence >=85% and nonblank text?
+         no: discard candidate, pause with guidance; Resume retries
+         yes: reserve UUID/shot position, green confirmation, two-second pause
+    -> background queue.refine (reuses OCR) -> optional OpenAI cleanup
+    -> duplicate text comparison -> Review -> TXT
 ```
 
 `useAutoScan.ts` coordinates scheduling and resource ownership. The typed `AutoScanMachine` owns searching, detected, stabilizing, capturing, captured, cooldown, paused, finishing, and error states (legacy visual-lock helpers remain for compatibility). Additional refs describe actual camera/worker lifecycle and user pause. Sampling never overlaps; full-resolution processing temporarily occupies the same CV worker. The scheduler prefers requestVideoFrameCallback, checking elapsed time before submitting a frame. A duration-aware timer is the fallback. Only one analysis/capture occupies the worker; slow devices skip opportunities instead of queuing preview frames. Main-thread work is limited to browser image decode, canvas copying/resizing, transferable creation and (only without worker OffscreenCanvas) canvas JPEG encoding. All CV computations remain in the worker.
@@ -105,7 +80,7 @@ Live analysis fails early in a fixed order. A 64x64 grayscale sample compares co
 
 The worker perspective-normalizes the page ROI to at most 480px and measures brightness and Laplacian variance in its inset interior. Dark or blurry frames skip adaptive thresholding and text contours. Gaussian adaptive thresholding plus horizontal morphology forms line components. `textBody.ts` groups nearby aligned rows and estimates one padded body rectangle. Text boxes supply optional overlays only. Focus, lighting, motion and stable page/guide geometry qualify a photo without a dense text block or surrounding whitespace. A guide-region fallback handles weak paper boundaries. This is local visual evidence, with no preview OCR, ML runtime, TextDetector, or network request.
 
-The existing state machine requires both at least two consecutive acceptable samples and 300ms of stable corners, scale, body position and content. Any failed gate resets readiness. A geometry change or sample gap restarts the window. Ordinary guidance is debounced 220ms; shutter/success/error/pause messages remain immediate. Capture prevents concurrent shutters during asynchronous preparation, then reserves the next page number and immutable capture position. A visual match never discards a shot. The frozen accepted region flashes green for 500ms; OCR is not awaited.
+The existing state machine requires both at least two consecutive acceptable samples and 300ms of stable corners, scale, body position and content. Any failed gate resets readiness. A geometry change or sample gap restarts the window. Ordinary guidance is debounced 220ms; shutter/success/error/pause messages remain immediate. Capture prevents concurrent shutters during asynchronous preparation, then awaits OCR confidence on the trial image. Only a score of at least 85% with nonblank text reserves the next page number and immutable capture position. A visual match never discards a shot. The frozen accepted region flashes green for 500ms after OCR qualifies; AI cleanup is not awaited.
 
 `stillCapture.ts` feature-detects ImageCapture on the existing live camera track. One takePhoto attempt has a 1.8-second deadline; failure/unavailability/empty output falls back to a Blob from actual videoWidth/videoHeight. Failed native decoding also falls back. Browser image decoding handles orientation; a native still is re-analyzed at low resolution in its OWN coordinate system, so differing preview/photo aspect ratios and fields of view never reuse incorrect preview corners. The resulting normalized coordinates multiply by the decoded full-size image dimensions in the existing perspective transform. Canvas fallback uses the preview's matching normalized coordinates. The source is capped at 8MP and output at a 2800px longest edge. Text bounds affect compact matching, not the page crop, preserving headings and footnotes.
 
@@ -115,7 +90,7 @@ After saving, `savedShot()` clears the legacy visual page-change lock and sets a
 
 Compact fingerprints remain bounded to eight pages for existing diagnostics. No recent fingerprint list is passed to the capture worker, so visual matching cannot reject photos before the OCR/text comparison. Temporary OpenCV objects and frames retain their existing cleanup.
 
-`provideOcrQueue()` runs in App so navigation does not discard pending OCR. `services/ocrQueue.ts` owns temporary Blobs outside Pinia, runs one OCR job by default (configurable to two in `config/ocr.ts`), and limits retained failed images to 2 / 12 MiB. Numbers/UUIDs are assigned before OCR starts; results update by UUID rather than completion order. Retry preserves position; deleted pages ignore late results. Reset invalidates work, releases images and terminates OCR. Done stops new acceptance, drains work and releases both workers; unmounting App also disposes the queue. Ordinary navigation away from Scan stops camera/CV while accepted OCR jobs continue. Images become unreachable after successful OCR; actual heap reclamation is browser-managed. OpenCV's allocated WASM heap can remain at its high-water mark until worker termination.
+`provideOcrQueue()` runs in App so navigation does not discard pending OCR. `services/ocrQueue.ts` owns temporary Blobs outside Pinia, runs one OCR job by default (configurable to two in `config/ocr.ts`), and limits retained failed images to 2 / 12 MiB. A trial UUID correlates the confidence request; page numbers/positions are assigned only when it passes; results update by UUID rather than completion order. Retry preserves position; deleted pages ignore late results. Reset invalidates work, releases images and terminates OCR. Done stops new acceptance, drains work and releases both workers; unmounting App also disposes the queue. Ordinary navigation away from Scan stops camera/CV while accepted OCR jobs continue. Images become unreachable after successful OCR; actual heap reclamation is browser-managed. OpenCV's allocated WASM heap can remain at its high-water mark until worker termination.
 
 Tesseract remains the existing lazy English worker with logger progress, cancellation, late-initialization cleanup, and a 3-minute watchdog. The active scanner displays counts/status instead of OCR text. Review shows failures, temporary-image Retry, sparse-text hints, raw/edited text separation, editing/deletion, and TXT export. Exports preserve edited text without inserted headings. Corrected images are uploaded through the backend to Google. Tesseract resource downloads use external CDN requests; OpenCV is served with the frontend.
 
@@ -127,7 +102,7 @@ The tradeoff is a ~15.6 MB uncompressed lazy worker bundle. A future custom redu
 
 ## OCR backend and provider selection
 
-The existing queue calls `createHybridOcr`, which tries `services/api.ts::ocrPage` first. FormData contains the image and capture UUID; fetch supplies the multipart boundary. Cloud success populates `rawText`, initial `editedText`, `ocrProvider`, original `paragraphs`, and `detectedLanguages` on that UUID. Google layout confidence stays on paragraphs at its native 0-1 scale; no overall Google confidence is synthesized. Tesseract keeps its existing 0-100 page confidence. Editing changes only editedText; original paragraph metadata describes the OCR, not subsequent edits.
+The existing queue calls `createHybridOcr`, which tries `services/api.ts::ocrPage` first. FormData contains the image and capture UUID; fetch supplies the multipart boundary. Cloud success populates `rawText`, initial `editedText`, `ocrProvider`, original `paragraphs`, and `detectedLanguages` on that UUID. Google paragraph confidence stays on paragraphs at its native 0-1 scale; a separate character-weighted token score on a 0-100 scale is derived only when scored tokens cover the complete OCR text. Tesseract keeps its existing 0-100 page confidence. Editing changes only editedText; original paragraph metadata describes the OCR, not subsequent edits.
 
 Cloud failures, malformed responses, or timeouts trigger Tesseract. A 60-second cooldown avoids repeated uploads to an unavailable backend. There are no automatic Google retries, including SDK retries. Both queue concurrency (1 by default, maximum 2) and fallback execution are bounded; a promise mutex serializes access to the single Tesseract worker even when two Google calls fail together. AbortController and generation checks cancel uploads/ignore late results after session reset. Done drains all accepted jobs. Cancelling a browser request cannot guarantee cancellation of a Google request already submitted; it may still finish and be billed.
 
@@ -158,3 +133,9 @@ Supabase, authentication, saved sessions, permanent image storage, PDF, Google D
 Express uses a route/controller/service boundary with Zod UUID and 1?20000-character validation, two active requests, a per-process request-rate limit, and a 45-second upstream abort. The service calls the Responses API using Node's native fetch, `store: false`, no tools, and a capped output. Its instruction treats book text as data and requests conservative transcription corrections without paraphrasing. Incomplete/refused/empty or dramatically changed outputs are rejected. Provider errors are sanitized; logs contain ID, duration and status only.
 
 The store preserves `rawText`, `correctedText`, `editedText` and cleanup status. Initially the editor uses corrected text when available; Review can restore the raw version. Only edited text from included pages goes to TXT. No page images are sent to OpenAI and no OpenAI key reaches Vite. See [setup, costs and privacy](photo-flow-and-cleanup.md).
+
+## 85% pre-acceptance OCR gate
+
+`queue.inspect()` runs the primary/fallback OCR without reserving a page or starting AI cleanup. `useAutoScan` awaits the result while the shutter is busy. `meetsOcrConfidence` accepts only finite 0-100 scores >=85 with nonblank text. Rejection releases the temporary candidate and pauses with guidance, avoiding repeated paid calls until Resume. The inspected UUID/result pass into `enqueue`; `refine` applies cleanup to that result without re-reading the image. Manual capture uses the same gate. Trial inspection has its own AbortController; canceling it does not terminate accepted-page cleanup. Done/Stop/Pause/navigation reject stale candidate results.
+
+Google confidence is explicitly derived as the non-whitespace-character-weighted mean of token layout confidence, scaled from 0-1 to 0-100. Every scored token must have a valid confidence and the anchors must account for all recognized non-whitespace text. Otherwise the overall score is omitted. Tesseract already uses 0-100. Neither score is proof of transcription accuracy; paragraph layout confidence is not substituted for OCR token confidence.

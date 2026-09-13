@@ -9,16 +9,20 @@ export function createHybridOcr(
     unavailableUntil = 0;
   const requests = new Set<AbortController>();
   let fallbackTail: Promise<void> = Promise.resolve();
-  async function recognize(image: Blob, pageId: string) {
+  async function recognize(image: Blob, pageId: string, signal?: AbortSignal) {
     const current = generation;
+    if (signal?.aborted) return null;
     if (Date.now() >= unavailableUntil) {
       const controller = new AbortController();
       requests.add(controller);
+      const abort = () => controller.abort();
+      signal?.addEventListener('abort', abort, { once: true });
       try {
         const result = await cloud(image, pageId, controller.signal);
-        if (current !== generation) return null;
+        if (current !== generation || signal?.aborted) return null;
         return {
           rawText: result.text,
+          confidence: result.confidence,
           ocrProvider: result.provider,
           paragraphs: result.paragraphs,
           detectedLanguages: result.detectedLanguages,
@@ -27,6 +31,7 @@ export function createHybridOcr(
         if (current !== generation || controller.signal.aborted) return null;
         unavailableUntil = Date.now() + ocrConfig.cloudCooldownMs;
       } finally {
+        signal?.removeEventListener('abort', abort);
         requests.delete(controller);
       }
     }
@@ -38,9 +43,9 @@ export function createHybridOcr(
     });
     try {
       await previous;
-      if (current !== generation) return null;
-      const result = await fallback.recognize(image, pageId);
-      return current === generation && result
+      if (current !== generation || signal?.aborted) return null;
+      const result = await fallback.recognize(image, pageId, signal);
+      return current === generation && !signal?.aborted && result
         ? { ...result, ocrProvider: 'tesseract' as const }
         : null;
     } finally {

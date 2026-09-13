@@ -4,6 +4,10 @@ import { AutoScanMachine } from '../services/autoScanMachine';
 import { usePageDetection } from './usePageDetection';
 import { useOcrQueue } from './useOcrQueue';
 import { useScanStore } from '../stores/scan';
+import {
+  meetsOcrConfidence,
+  minimumOcrConfidence,
+} from '../services/ocrAcceptance';
 import { guideCorners, guideForFrame } from '../services/scannerGeometry';
 import {
   captureStill,
@@ -62,6 +66,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
       running.value &&
       !finishing.value &&
       !busy.value &&
+      !queue.checking.value &&
       queue.hasCapacity.value,
   );
   let feedbackTimer: ReturnType<typeof setTimeout> | undefined;
@@ -167,6 +172,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
       !running.value ||
       finishing.value ||
       busy.value ||
+      queue.checking.value ||
       !queue.hasCapacity.value
     )
       return;
@@ -248,10 +254,31 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
       if (current !== generation || disposed) return;
       duplicateMatch.value = result.duplicateMatch ?? null;
       duplicateScore.value = result.duplicateMatch?.gray ?? 1;
+      machine.message = 'Checking OCR confidence... Keep this page in view.';
+      const inspected = await queue.inspect(result.blob);
+      if (!valid()) return;
+      if (!meetsOcrConfidence(inspected.result)) {
+        const confidence = inspected.result?.confidence;
+        const score =
+          typeof confidence === 'number' &&
+          Number.isFinite(confidence) &&
+          confidence >= 0 &&
+          confidence <= 100
+            ? !inspected.result?.rawText.trim()
+              ? 'No text was recognized.'
+              : `OCR confidence ${(Math.floor(confidence * 10) / 10).toFixed(1)}% is below ${minimumOcrConfidence}%.`
+            : 'OCR confidence could not be verified.';
+        // Do not silently repeat paid OCR on an unchanged rejected page.
+        pause(
+          `${score} Shot not saved. Improve focus or lighting, then tap Resume.`,
+        );
+        return;
+      }
       const id = queue.enqueue(
         result.blob,
         result.fingerprint,
         result.visualFingerprint,
+        inspected,
       );
       if (!id) {
         if (!finishing.value)
@@ -269,7 +296,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
         };
         machine.savedShot(
           performance.now(),
-          `\u2713 Shot ${session.pages.find((p) => p.id === id)!.capturePosition} saved — turn the page`,
+          `\u2713 Shot ${session.pages.find((p) => p.id === id)!.capturePosition} saved — ${inspected.result.confidence!.toFixed(1)}% OCR confidence — turn the page`,
         );
         clearTimeout(feedbackTimer);
         feedbackTimer = setTimeout(
@@ -326,7 +353,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
       const shouldCapture = machine.sample(
         result,
         performance.now(),
-        !queue.hasCapacity.value,
+        !queue.hasCapacity.value || queue.checking.value,
       );
       if (shouldCapture) await capture();
     } catch (cause) {
@@ -369,6 +396,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
     if (!flight) nextFrame();
   }
   function pause(message = 'Scanner paused') {
+    queue.cancelInspection();
     generation++;
     vision.terminate();
     flight = null;
@@ -428,6 +456,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
       nextFrame();
   }
   async function finish() {
+    queue.cancelInspection();
     generation++;
     finishing.value = true;
     vision.terminate();
@@ -442,6 +471,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
     if (!disposed) await queue.releaseWorker();
   }
   function stop() {
+    queue.cancelInspection();
     clearTimeout(feedbackTimer);
     clearTimeout(guidanceTimer);
     acceptedRegion.value = null;

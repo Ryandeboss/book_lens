@@ -46,7 +46,11 @@ vi.mock('../services/stillCapture', () => ({
 const getUserMedia = vi.fn(),
   stop = vi.fn(),
   drawImage = vi.fn();
-const engine = { recognize: vi.fn(), terminate: vi.fn(async () => {}) };
+const engine = {
+  recognize: vi.fn(),
+  refine: vi.fn<(result: OcrResult, id: string) => Promise<OcrResult | null>>(),
+  terminate: vi.fn(async () => {}),
+};
 let wrapper: ReturnType<typeof mount>;
 let router: ReturnType<typeof createRouter>;
 let queue: ReturnType<typeof createOcrQueue>;
@@ -74,6 +78,7 @@ beforeEach(async () => {
     width: 800,
     height: 1100,
   });
+  engine.refine.mockImplementation(async (result) => result);
   engine.recognize.mockResolvedValue({
     rawText: 'Recognized words',
     confidence: 90,
@@ -141,6 +146,67 @@ async function advance(ms: number) {
   await vi.advanceTimersByTimeAsync(ms);
   await flushPromises();
 }
+it('waits for OCR confidence before saving or showing green, then reuses the OCR', async () => {
+  let complete!: (result: OcrResult) => void;
+  engine.recognize.mockReturnValue(
+    new Promise<OcrResult>((resolve) => {
+      complete = resolve;
+    }),
+  );
+  await ready();
+  await advance(1200);
+  expect(useScanStore().pages).toHaveLength(0);
+  expect(wrapper.text()).toContain('Checking OCR confidence');
+  expect(wrapper.find('.accepted-region').exists()).toBe(false);
+  complete({ rawText: 'Read this page', confidence: 85 });
+  await flushPromises();
+  expect(useScanStore().pages).toHaveLength(1);
+  expect(wrapper.find('.accepted-region').exists()).toBe(true);
+  expect(engine.recognize).toHaveBeenCalledOnce();
+});
+it.each([84.99, undefined])(
+  'rejects %s confidence without adding a page, then accepts a better Resume attempt',
+  async (confidence) => {
+    engine.recognize.mockResolvedValue({
+      rawText: 'Uncertain page',
+      confidence,
+    });
+    await ready();
+    await advance(1200);
+    expect(useScanStore().pages).toHaveLength(0);
+    expect(wrapper.text()).toContain('Shot not saved');
+    expect(wrapper.find('.accepted-region').exists()).toBe(false);
+    await advance(10000);
+    expect(engine.recognize).toHaveBeenCalledOnce();
+    engine.recognize.mockResolvedValue({
+      rawText: 'Better page',
+      confidence: 90,
+    });
+    await button('Resume').trigger('click');
+    await advance(1200);
+    expect(useScanStore().pages[0]).toMatchObject({
+      pageNumber: 1,
+      capturePosition: 1,
+      confidence: 90,
+    });
+  },
+);
+it('Done cancels an unaccepted trial photo and ignores its late high-confidence result', async () => {
+  let complete!: (result: OcrResult) => void;
+  engine.recognize.mockReturnValue(
+    new Promise<OcrResult>((resolve) => {
+      complete = resolve;
+    }),
+  );
+  await ready();
+  await advance(1200);
+  await button('Done').trigger('click');
+  await flushPromises();
+  complete({ rawText: 'Late result', confidence: 99 });
+  await flushPromises();
+  expect(useScanStore().pages).toHaveLength(0);
+  expect(router.currentRoute.value.path).toBe('/review');
+});
 describe('continuous scan screen', () => {
   it('automatically saves source-resolution photos and waits two seconds before looking again', async () => {
     expect(wrapper.find('video').exists()).toBe(false);
@@ -196,7 +262,7 @@ describe('continuous scan screen', () => {
   });
   it('Done stops acceptance and camera immediately, drains OCR, then opens Review', async () => {
     let complete!: (result: OcrResult) => void;
-    engine.recognize.mockReturnValue(
+    engine.refine.mockReturnValue(
       new Promise<OcrResult>((done) => {
         complete = done;
       }),
@@ -253,7 +319,7 @@ describe('continuous scan screen', () => {
   });
   it('does not navigate or terminate another scanner after leaving a pending Done', async () => {
     let complete!: (result: OcrResult) => void;
-    engine.recognize.mockReturnValue(
+    engine.refine.mockReturnValue(
       new Promise<OcrResult>((done) => {
         complete = done;
       }),
@@ -287,8 +353,8 @@ describe('continuous scan screen', () => {
   });
 });
 
-it('freezes the accepted region during green feedback while OCR remains pending', async () => {
-  engine.recognize.mockReturnValue(new Promise(() => {}));
+it('freezes the accepted region during green feedback while cleanup remains pending', async () => {
+  engine.refine.mockReturnValue(new Promise(() => {}));
   const initial = page();
   initial.textBody = initial.corners;
   vision.analyze.mockResolvedValue(initial);
@@ -335,7 +401,7 @@ it('automatically scans text without page edges and shows progress before green 
     textBody: page().corners,
   };
   vision.analyze.mockResolvedValue(d);
-  engine.recognize.mockReturnValue(new Promise(() => {}));
+  engine.refine.mockReturnValue(new Promise(() => {}));
   await ready();
   await advance(170);
   expect(wrapper.find('.scan-sweep').exists()).toBe(true);

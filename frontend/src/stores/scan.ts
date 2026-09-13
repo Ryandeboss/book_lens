@@ -35,9 +35,10 @@ export const useScanStore = defineStore('scan', () => {
   function reservePage(
     fingerprint: number[],
     visualFingerprint?: PageFingerprint,
+    id: string = crypto.randomUUID(),
   ) {
     const page: ScannedPage = {
-      id: crypto.randomUUID(),
+      id,
       pageNumber: currentPageNumber.value,
       capturePosition: ++captureSequence,
       status: 'queued',

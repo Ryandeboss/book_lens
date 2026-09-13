@@ -88,6 +88,11 @@ export async function ocrPage(
       data.provider !== 'google-document-ai' ||
       !('text' in data) ||
       typeof data.text !== 'string' ||
+      ('confidence' in data &&
+        (typeof data.confidence !== 'number' ||
+          !Number.isFinite(data.confidence) ||
+          data.confidence < 0 ||
+          data.confidence > 100)) ||
       !('paragraphs' in data) ||
       !Array.isArray(data.paragraphs) ||
       !data.paragraphs.every(
@@ -107,6 +112,9 @@ export async function ocrPage(
       throw new Error('Unexpected OCR response');
     return {
       provider: data.provider,
+      ...('confidence' in data
+        ? { confidence: data.confidence as number }
+        : {}),
       text: data.text,
       paragraphs: data.paragraphs,
       detectedLanguages: data.detectedLanguages,

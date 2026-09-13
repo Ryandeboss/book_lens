@@ -93,8 +93,12 @@ export function useOcr() {
     if (active) await active.terminate().catch(() => {});
   }
 
-  async function recognize(image: Blob): Promise<OcrResult | null> {
-    if (disposed || isProcessing.value) return null;
+  async function recognize(
+    image: Blob,
+    _pageId?: string,
+    signal?: AbortSignal,
+  ): Promise<OcrResult | null> {
+    if (disposed || isProcessing.value || signal?.aborted) return null;
     const current = generation;
     isProcessing.value = true;
     error.value = null;
@@ -107,6 +111,8 @@ export function useOcr() {
       // A failed resource download or worker crash must not leave the UI stuck forever.
       timeout = setTimeout(() => reject(new Error('OCR timed out')), 180000);
     });
+    const abort = () => cancelJob?.();
+    signal?.addEventListener('abort', abort, { once: true });
     try {
       const operation = (async () => {
         const active = await initialize();
@@ -134,6 +140,7 @@ export function useOcr() {
       }
       return null;
     } finally {
+      signal?.removeEventListener('abort', abort);
       clearTimeout(timeout);
       if (current === generation) {
         isProcessing.value = false;

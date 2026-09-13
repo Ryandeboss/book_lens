@@ -81,9 +81,10 @@ watch(isActive, (value) => {
       <p class="eyebrow">01 / SCAN</p>
       <h1>Turn pages. Keep the words.</h1>
       <p>
-        Hold a page still and in focus. A green flash confirms your photo is
-        saved. You have two seconds to turn the page before the camera looks for
-        another clear shot. OCR and cleanup happen in the background.
+        Hold a page still and in focus. Keep it in view while OCR checks the
+        trial photo. A green flash confirms it reached at least 85% OCR
+        confidence and was saved. Then you have two seconds to turn the page. AI
+        cleanup continues in the background.
       </p>
       <label class="cleanup-option">
         <input v-model="session.cleanupEnabled" type="checkbox" />
@@ -152,7 +153,8 @@ watch(isActive, (value) => {
         v-if="machine.state === 'searching' || machine.state === 'detected'"
         class="scan-hint"
       >
-        Show one page and hold briefly. Capture is automatic.
+        Show one page and hold briefly. Saving requires at least 85% OCR
+        confidence.
       </p>
       <p class="counts">
         {{ session.pages.length }} shots saved · {{ processed }} processed<span

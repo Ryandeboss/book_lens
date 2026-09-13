@@ -3,11 +3,26 @@ import { ocrConfig } from '../config/ocr';
 import { computed, ref } from 'vue';
 import { scannerConfig as config } from '../config/scanner';
 import type { OcrResult } from '../types/Page';
+import { meetsOcrConfidence } from './ocrAcceptance';
 import type { useScanStore } from '../stores/scan';
 
 export interface OcrEngine {
-  recognize(image: Blob, pageId: string): Promise<OcrResult | null>;
+  recognize(
+    image: Blob,
+    pageId: string,
+    signal?: AbortSignal,
+  ): Promise<OcrResult | null>;
+  inspect?(
+    image: Blob,
+    pageId: string,
+    signal?: AbortSignal,
+  ): Promise<OcrResult | null>;
+  refine?(result: OcrResult, pageId: string): Promise<OcrResult | null>;
   terminate(): Promise<void>;
+}
+export interface InspectedShot {
+  id: string;
+  result: OcrResult | null;
 }
 export function createOcrQueue(
   session: ReturnType<typeof useScanStore>,
@@ -17,7 +32,10 @@ export function createOcrQueue(
   const pendingCount = ref(0),
     pendingBytes = ref(0),
     retryVersion = ref(0);
-  let jobs: { id: string; blob: Blob }[] = [];
+  const checking = ref(false);
+  let inspection: AbortController | null = null;
+  type Job = { id: string; blob: Blob; result?: OcrResult };
+  let jobs: Job[] = [];
   const retries = new Map<string, Blob>();
   const maxActive = Math.max(1, Math.min(2, Math.floor(concurrency) || 1));
   let active = 0,
@@ -48,11 +66,15 @@ export function createOcrQueue(
       void run(job, generation);
     }
   }
-  async function run(job: { id: string; blob: Blob }, current: number) {
+  async function run(job: Job, current: number) {
     try {
       if (session.pages.some((p) => p.id === job.id)) {
         session.setProcessing(job.id);
-        const result = await engine.recognize(job.blob, job.id);
+        const result = job.result
+          ? engine.refine
+            ? await engine.refine(job.result, job.id)
+            : job.result
+          : await engine.recognize(job.blob, job.id);
         if (
           current === generation &&
           session.pages.some((p) => p.id === job.id)
@@ -83,9 +105,9 @@ export function createOcrQueue(
       }
     }
   }
-  function submit(id: string, blob: Blob) {
+  function submit(id: string, blob: Blob, result?: OcrResult) {
     session.setQueued(id);
-    jobs.push({ id, blob });
+    jobs.push({ id, blob, result });
     pendingCount.value++;
     pendingBytes.value += blob.size;
     void pump();
@@ -94,15 +116,51 @@ export function createOcrQueue(
     blob: Blob,
     fingerprint: number[],
     visualFingerprint?: PageFingerprint,
+    inspected?: InspectedShot,
   ) {
     if (
       !hasCapacity.value ||
       pendingBytes.value + blob.size > config.maxPendingBytes
     )
       return null;
-    const id = session.reservePage(fingerprint, visualFingerprint);
-    submit(id, blob);
+    if (inspected && !meetsOcrConfidence(inspected.result)) return null;
+    const id = session.reservePage(
+      fingerprint,
+      visualFingerprint,
+      inspected?.id,
+    );
+    submit(id, blob, inspected?.result ?? undefined);
     return id;
+  }
+  async function inspect(blob: Blob): Promise<InspectedShot> {
+    const id = crypto.randomUUID();
+    if (disposed || checking.value) return { id, result: null };
+    const controller = new AbortController();
+    inspection = controller;
+    checking.value = true;
+    const current = generation;
+    try {
+      const result = await (engine.inspect ?? engine.recognize)(
+        blob,
+        id,
+        controller.signal,
+      );
+      return {
+        id,
+        result:
+          current === generation && !controller.signal.aborted ? result : null,
+      };
+    } catch {
+      return { id, result: null };
+    } finally {
+      if (inspection === controller) {
+        checking.value = false;
+        inspection = null;
+      }
+    }
+  }
+  function cancelInspection() {
+    inspection?.abort();
   }
   function canRetry(id: string) {
     void retryVersion.value;
@@ -132,6 +190,7 @@ export function createOcrQueue(
   }
   async function reset() {
     generation++;
+    cancelInspection();
     jobs = [];
     retries.clear();
     retryVersion.value++;
@@ -147,6 +206,9 @@ export function createOcrQueue(
   }
   return {
     pendingCount,
+    checking,
+    inspect,
+    cancelInspection,
     pendingBytes,
     hasCapacity,
     retryVersion,

@@ -35,6 +35,18 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 describe('OCR worker lifecycle', () => {
+  it('aborts a trial OCR through its signal and can read the next candidate', async () => {
+    mocks.recognize.mockReturnValueOnce(new Promise(() => {}));
+    const controller = new AbortController();
+    const pending = ocr.recognize(new Blob(), 'trial', controller.signal);
+    await flushPromises();
+    controller.abort();
+    expect(await pending).toBeNull();
+    expect(mocks.terminate).toHaveBeenCalledOnce();
+    expect(await ocr.recognize(new Blob(), 'next')).toMatchObject({
+      confidence: 91,
+    });
+  });
   it('loads lazily and reuses one English worker for multiple pages', async () => {
     expect(mocks.createWorker).not.toHaveBeenCalled();
     const image = new Blob(['page']);
