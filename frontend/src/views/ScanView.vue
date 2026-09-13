@@ -141,12 +141,21 @@ watch(isActive, (value) => {
       <p class="scanner-status" role="status" :data-state="machine.state">
         {{ scanner.displayMessage.value }}
       </p>
+      <p class="scan-hint ocr-confidence" role="status">
+        {{ scanner.confidenceLabel.value }}
+      </p>
       <progress
         v-if="machine.state === 'stabilizing' || machine.state === 'capturing'"
         class="capture-progress"
-        :value="machine.state === 'capturing' ? 1 : machine.stableProgress"
+        :value="
+          machine.state === 'capturing' ? undefined : machine.stableProgress
+        "
         :max="1"
-        aria-label="Automatic capture progress"
+        :aria-label="
+          machine.state === 'capturing'
+            ? 'Reading photo'
+            : 'Automatic capture progress'
+        "
       />
       <p
         v-if="machine.state === 'searching' || machine.state === 'detected'"

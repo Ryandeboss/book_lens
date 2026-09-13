@@ -53,7 +53,13 @@ async function processImage(image: Buffer, mimeType: string) {
         name,
         rawDocument: { content: image, mimeType },
         fieldMask: {
-          paths: ['text', 'pages.paragraphs', 'pages.detected_languages'],
+          // Token layout scores/anchors are required for the acceptance score.
+          paths: [
+            'text',
+            'pages.tokens',
+            'pages.paragraphs',
+            'pages.detected_languages',
+          ],
         },
       },
       { timeout: env.OCR_TIMEOUT_MS, retry: null },

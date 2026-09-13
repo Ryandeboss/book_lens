@@ -71,6 +71,10 @@ Automated tests mock OpenAI and Google, covering cleanup success/failure/cancell
 
 ## Confidence semantics
 
+The backend explicitly requests `pages.tokens` in the Document AI field mask, including the token layout scores and text anchors needed for this calculation. An earlier request mask omitted tokens, so even successful Google transcription had no usable percentage. The endpoint regression test now emulates Google's field filtering to catch this omission. See [Google's process request field-mask reference](https://docs.cloud.google.com/document-ai/docs/reference/rest/v1/projects.locations.processors/process).
+
+The scanner displays **OCR confidence: measuring this photo** while OCR is pending and keeps **Last photo OCR confidence: 87.2% — 80% required** visible after the response, including below-threshold results. This is a score for a completed trial photo, not a live camera focus score or OCR progress percentage. Missing scores display **unavailable (not 0%)** and do not bypass the 80% gate. The reading indicator is indeterminate until the response arrives. No extra paid OCR call is needed for the readout.
+
 Google Document AI provides confidence on token layouts. BookLens derives a character-weighted mean of the token scores, reported on a 0-100 scale, **only when scored token anchors cover all recognized text**. Missing/invalid scores or incomplete coverage leave confidence unavailable and the shot is not accepted. Paragraph confidence keeps Google's original 0-1 scale and is not used for acceptance. See the [Document AI layout/token reference](https://docs.cloud.google.com/document-ai/docs/reference/rest/v1/Document#Layout).
 
 Tesseract already reports its OCR confidence on a 0-100 scale. Both engines use the same inclusive 80-point acceptance threshold; blank text cannot pass. These scores estimate the engine's certainty, not a guarantee that 80% of the words are correct, and scores from different engines are not perfectly calibrated against each other. AI cleanup cannot raise the acceptance score: it runs only after acceptance. The accepted OCR result is reused for cleanup/review, avoiding a second OCR call.

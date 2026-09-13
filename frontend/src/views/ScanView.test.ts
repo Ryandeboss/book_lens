@@ -167,12 +167,19 @@ it('waits for OCR confidence before saving or showing green, then reuses the OCR
   await advance(1200);
   expect(useScanStore().pages).toHaveLength(0);
   expect(wrapper.text()).toContain('Checking OCR confidence');
+  expect(wrapper.get('.ocr-confidence').text()).toContain(
+    'measuring this photo',
+  );
+  expect(wrapper.get('progress').attributes('value')).toBeUndefined();
   expect(wrapper.find('.accepted-region').exists()).toBe(false);
   complete({ rawText: 'Read this page', confidence: 85 });
   await flushPromises();
   expect(useScanStore().pages).toHaveLength(1);
   expect(wrapper.find('.accepted-region').exists()).toBe(true);
   expect(engine.recognize).toHaveBeenCalledOnce();
+  expect(wrapper.get('.ocr-confidence').text()).toContain('85.0%');
+  await advance(1000);
+  expect(wrapper.get('.ocr-confidence').text()).toContain('85.0%');
 });
 it.each([79.99, undefined])(
   'rejects %s confidence without adding a page, then accepts a better Resume attempt',
@@ -185,6 +192,11 @@ it.each([79.99, undefined])(
     await advance(1200);
     expect(useScanStore().pages).toHaveLength(0);
     expect(wrapper.text()).toContain('Shot not saved');
+    expect(wrapper.get('.ocr-confidence').text()).toContain(
+      confidence === undefined ? 'unavailable (not 0%)' : '79.9%',
+    );
+    if (confidence === undefined)
+      expect(wrapper.text()).toContain('no usable confidence score');
     expect(wrapper.find('.accepted-region').exists()).toBe(false);
     await advance(10000);
     expect(engine.recognize).toHaveBeenCalledOnce();
@@ -199,6 +211,7 @@ it.each([79.99, undefined])(
       capturePosition: 1,
       confidence: 90,
     });
+    expect(wrapper.get('.ocr-confidence').text()).toContain('90.0%');
   },
 );
 it('Done cancels an unaccepted trial photo and ignores its late high-confidence result', async () => {

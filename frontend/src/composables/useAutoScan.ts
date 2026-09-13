@@ -22,6 +22,17 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
     session = useScanStore();
   const machine = reactive(new AutoScanMachine());
   const displayMessage = ref(machine.message);
+  const lastConfidence = shallowRef<{ value: number | null } | null>(null);
+  const confidenceLabel = computed(() => {
+    if (queue.checking.value)
+      return 'OCR confidence: measuring this photo... The percentage appears when OCR finishes.';
+    if (!lastConfidence.value)
+      return 'OCR confidence: waiting for a clear photo.';
+    const value = lastConfidence.value.value;
+    return value === null
+      ? 'Last photo OCR confidence: unavailable (not 0%).'
+      : `Last photo OCR confidence: ${(Math.floor(value * 10) / 10).toFixed(1)}% — ${minimumOcrConfidence}% required.`;
+  });
   let guidanceTimer: ReturnType<typeof setTimeout> | undefined;
   watch(
     () => [machine.state, machine.message],
@@ -257,8 +268,17 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
       machine.message = 'Checking OCR confidence... Keep this page in view.';
       const inspected = await queue.inspect(result.blob);
       if (!valid()) return;
+      const confidence = inspected.result?.confidence;
+      lastConfidence.value = {
+        value:
+          typeof confidence === 'number' &&
+          Number.isFinite(confidence) &&
+          confidence >= 0 &&
+          confidence <= 100
+            ? confidence
+            : null,
+      };
       if (!meetsOcrConfidence(inspected.result)) {
-        const confidence = inspected.result?.confidence;
         const score =
           typeof confidence === 'number' &&
           Number.isFinite(confidence) &&
@@ -267,10 +287,16 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
             ? !inspected.result?.rawText.trim()
               ? 'No text was recognized.'
               : `OCR confidence ${(Math.floor(confidence * 10) / 10).toFixed(1)}% is below ${minimumOcrConfidence}%.`
-            : 'OCR confidence could not be verified.';
+            : inspected.result
+              ? 'OCR returned no usable confidence score. This does not mean the photo scored 0%.'
+              : 'OCR could not read this photo, so no confidence score is available.';
         // Do not silently repeat paid OCR on an unchanged rejected page.
         pause(
-          `${score} Shot not saved. Improve focus or lighting, then tap Resume.`,
+          `${score} Shot not saved. ${
+            lastConfidence.value.value === null
+              ? 'Tap Resume to retry. If this repeats, check that the latest backend is deployed.'
+              : 'Improve focus or lighting, then tap Resume.'
+          }`,
         );
         return;
       }
@@ -501,6 +527,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
   return {
     machine,
     displayMessage,
+    confidenceLabel,
     acceptedRegion,
     duplicateMatch,
     detection,

@@ -65,6 +65,51 @@ beforeEach(() => {
   ]);
 });
 describe('Document AI OCR endpoint', () => {
+  it('requests token scores and returns the derived percentage through the real endpoint', async () => {
+    // Mimic Google's field-mask behavior, so omitting pages.tokens breaks this test.
+    google.processDocument.mockImplementation(async (input) => [
+      {
+        document: {
+          text: 'AB CDEFGH',
+          pages: [
+            {
+              ...(input.fieldMask.paths.includes('pages.tokens')
+                ? {
+                    tokens: [
+                      {
+                        layout: {
+                          confidence: 0.7,
+                          textAnchor: { textSegments: [{ endIndex: '3' }] },
+                        },
+                      },
+                      {
+                        layout: {
+                          confidence: 0.9,
+                          textAnchor: {
+                            textSegments: [{ startIndex: '3', endIndex: '9' }],
+                          },
+                        },
+                      },
+                    ],
+                  }
+                : {}),
+            },
+          ],
+        },
+      },
+    ]);
+    const result = await send();
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({
+      provider: 'google-document-ai',
+      text: 'AB CDEFGH',
+      confidence: 85,
+      confidenceMethod: 'token-character-weighted',
+    });
+    expect(result.body).not.toHaveProperty('pages');
+    expect(result.body).not.toHaveProperty('tokens');
+    expect(google.processDocument).toHaveBeenCalledOnce();
+  });
   it('forwards validated bytes with v1, a deadline and no paid retry; returns compact structured text', async () => {
     const result = await send();
     expect(result.status).toBe(200);
