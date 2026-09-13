@@ -8,18 +8,16 @@ afterEach(() => {
 it('passes the Google OCR percentage through without confusing paragraph confidence', async () => {
   vi.stubGlobal(
     'fetch',
-    vi
-      .fn()
-      .mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          provider: 'google-document-ai',
-          text: 'Hello',
-          confidence: 85,
-          paragraphs: [{ text: 'Hello', confidence: 0.92 }],
-          detectedLanguages: ['en'],
-        }),
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        provider: 'google-document-ai',
+        text: 'Hello',
+        confidence: 85,
+        paragraphs: [{ text: 'Hello', confidence: 0.92 }],
+        detectedLanguages: ['en'],
       }),
+    }),
   );
   expect(await ocrPage(new Blob(), 'page')).toMatchObject({
     confidence: 85,
