@@ -81,6 +81,20 @@ The updated workflow passes 186 automated tests (143 frontend, 43 backend), lint
 
 ## Finding and retrying AI cleanup
 
+### If the browser cannot connect
+
+The connection panel keeps a visible **Connected**, **OpenAI key missing**, or **Check failed** result after a check finishes. The button becomes **Check again**. Checking only reads backend configuration; it does not retry page cleanup or verify OpenAI billing. Use **Clean up with AI** in Review to retry a page.
+
+Open **Connection details** to see the actual API address used by the built frontend and the website origin used by your browser. For this deployment:
+
+1. In Vercel, open the frontend project → Settings → Environment Variables. Set `VITE_API_URL=https://book-lens.onrender.com/api` for Production (and Preview if needed). Redeploy; Vite embeds this value at build time.
+2. In Render, open the backend service → Environment. Set `FRONTEND_URL` to the exact scanner website origin shown in Connection details, for example `https://your-project.vercel.app`. Additional scanner domains go in `CORS_ORIGINS`, separated by commas. Save and redeploy. Do not use the Render backend address as `FRONTEND_URL`.
+3. Reload the scanner after both deployments finish and check again. A direct visit to `/api/proofread/status` can work even when browser cross-origin requests are blocked; it does not by itself verify CORS.
+
+API base URLs now accept a Render origin with or without `/api`. Backend origin configuration tolerates trailing slashes and URL paths while still allowing only explicitly configured origins. The status check allows up to 60 seconds for a sleeping service. Invalid/HTML responses, missing routes, network failures and timeouts have separate safe messages. Browser network errors cannot reliably distinguish CORS rejection from an unavailable network; the panel gives the settings to verify rather than claiming one particular cause.
+
+Never put the OpenAI key in Vercel. These connection settings contain public URLs only.
+
 The earlier checkbox disappeared when the camera started, and Review had no action to request cleanup. The AI cleanup panel now stays visible on Scan and Review. It reads `/api/proofread/status` from the same backend used for OCR and distinguishes a detected key, a missing key, and an unreachable backend. Detecting a key does not prove model access or API billing.
 
 In Review, choose **Clean remaining pages with AI** for included pages that have not been cleaned, or **Clean up with AI** on one page. These actions use existing raw OCR, require no image upload or OCR retry, and work even if automatic cleanup was disabled or previously failed. Requests run one at a time; a backend failure stops the bulk operation. Raw OCR and manual edits are preserved. If you edited a page yourself, choose **Use cleaned text** to replace those edits after reviewing the result. Excluded duplicates are skipped unless restored.

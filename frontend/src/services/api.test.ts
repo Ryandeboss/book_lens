@@ -1,9 +1,63 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { ocrPage, proofreadPage, cleanupFailure } from './api';
+import {
+  ocrPage,
+  proofreadPage,
+  cleanupFailure,
+  getProofreadStatus,
+  normalizeApiUrl,
+} from './api';
 import { ocrConfig } from '../config/ocr';
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
+});
+it.each([
+  [' https://book-lens.onrender.com/ ', 'https://book-lens.onrender.com/api'],
+  ['https://book-lens.onrender.com/api/', 'https://book-lens.onrender.com/api'],
+  ['/api/', '/api'],
+])('normalizes API base %s', (input, expected) => {
+  expect(normalizeApiUrl(input)).toBe(expected);
+});
+it.each(['status', 'cleanup'])(
+  'distinguishes an HTML response from a network failure for %s',
+  async (kind) => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response('<html>Frontend</html>', { status: 200 }),
+        ),
+    );
+    const call =
+      kind === 'status'
+        ? getProofreadStatus()
+        : proofreadPage('raw', 'id', new AbortController().signal);
+    await expect(call).rejects.toThrow(
+      'did not return a valid cleanup response',
+    );
+  },
+);
+it('reports missing routes, malformed status and successful key detection', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi
+      .fn()
+      .mockResolvedValueOnce(new Response('{}', { status: 404 }))
+      .mockResolvedValueOnce(new Response('{"configured":"true"}'))
+      .mockResolvedValueOnce(new Response('{"configured":true}')),
+  );
+  await expect(getProofreadStatus()).rejects.toThrow('endpoint was not found');
+  await expect(getProofreadStatus()).rejects.toThrow('valid cleanup response');
+  await expect(getProofreadStatus()).resolves.toBe(true);
+});
+it('distinguishes browser connection failures from timeout without exposing errors', () => {
+  expect(cleanupFailure(new TypeError('private details'))).toContain(
+    'allowed website origin',
+  );
+  expect(
+    cleanupFailure(new DOMException('private details', 'AbortError')),
+  ).toContain('timed out');
 });
 it('shows safe cleanup diagnostics instead of upstream text or credentials', async () => {
   vi.stubGlobal(

@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { z } from 'zod';
+import { normalizeOrigins } from './origins.js';
 
 const schema = z.object({
   NODE_ENV: z
@@ -35,9 +36,9 @@ const schema = z.object({
     .default(30),
 });
 export const env = schema.parse(process.env);
-export const allowedOrigins = [
+export const allowedOrigins = normalizeOrigins([
   env.FRONTEND_URL,
   ...env.CORS_ORIGINS.split(',')
     .map((origin) => origin.trim())
     .filter(Boolean),
-];
+]);

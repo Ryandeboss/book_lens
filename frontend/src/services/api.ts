@@ -2,13 +2,31 @@ import type { CloudOcrResult } from '../types/Page';
 import { ocrConfig } from '../config/ocr';
 import type { HealthResponse } from '../types/api';
 
-const apiUrl = (
-  import.meta.env.VITE_API_URL || 'http://localhost:3000/api'
-).replace(/\/$/, '');
+export function normalizeApiUrl(value: string): string {
+  const trimmed = value.trim().replace(/\/+$/, '');
+  // Accept a Render service URL with or without the API prefix.
+  if (/^https?:\/\/[^/]+$/i.test(trimmed)) return `${trimmed}/api`;
+  return trimmed;
+}
+export const apiUrl = normalizeApiUrl(
+  import.meta.env.VITE_API_URL ||
+    (import.meta.env.PROD ? '/api' : 'http://localhost:3000/api'),
+);
+export const cleanupStatusTimeoutMs = 60000;
 
 export type CleanupResult =
   { status: 'applied'; correctedText: string } | { status: 'unavailable' };
 const cleanupMessages: Record<string, string> = {
+  CLEANUP_CONNECTION:
+    'Cannot reach AI cleanup. Check the API address and allowed website origin in Connection details. Original OCR is kept.',
+  CLEANUP_TIMEOUT:
+    'The cleanup connection timed out. Render may be waking up; wait a moment and check again. Original OCR is kept.',
+  CLEANUP_RESPONSE:
+    'The server did not return a valid cleanup response. Check the API address and redeploy the backend. Original OCR is kept.',
+  CLEANUP_ROUTE:
+    'The cleanup endpoint was not found. Check that the API address ends in /api and the latest backend is deployed.',
+  INVALID_TEXT:
+    'Cleanup requires a valid page ID and between 1 and 20,000 characters of OCR text.',
   CLEANUP_AUTH:
     'OpenAI rejected the server API key. Check the key in Render and redeploy.',
   CLEANUP_ACCESS: 'The OpenAI project does not have access to this model.',
@@ -30,23 +48,48 @@ export class CleanupApiError extends Error {
 export const cleanupFailure = (error: unknown) =>
   error instanceof CleanupApiError
     ? error.message
-    : 'Could not reach AI cleanup. Check the connection and try again; original OCR is kept.';
+    : error &&
+        typeof error === 'object' &&
+        'name' in error &&
+        (error.name === 'AbortError' || error.name === 'TimeoutError')
+      ? cleanupMessages.CLEANUP_TIMEOUT!
+      : cleanupMessages.CLEANUP_CONNECTION!;
+
+async function cleanupJson(response: Response): Promise<unknown> {
+  if (!response.ok) {
+    const data: unknown = await response.json().catch(() => null);
+    throw new CleanupApiError(
+      data &&
+        typeof data === 'object' &&
+        'code' in data &&
+        typeof data.code === 'string'
+        ? data.code
+        : response.status === 404
+          ? 'CLEANUP_ROUTE'
+          : 'CLEANUP_UNAVAILABLE',
+    );
+  }
+  try {
+    return await response.json();
+  } catch {
+    throw new CleanupApiError('CLEANUP_RESPONSE');
+  }
+}
 export async function getProofreadStatus(
   signal?: AbortSignal,
 ): Promise<boolean> {
   const response = await fetch(`${apiUrl}/proofread/status`, {
-    signal: signal ?? AbortSignal.timeout(8000),
+    signal: signal ?? AbortSignal.timeout(cleanupStatusTimeoutMs),
     cache: 'no-store',
   });
-  if (!response.ok) throw new Error('Cleanup status unavailable');
-  const data: unknown = await response.json();
+  const data = await cleanupJson(response);
   if (
     !data ||
     typeof data !== 'object' ||
     !('configured' in data) ||
     typeof data.configured !== 'boolean'
   )
-    throw new Error('Invalid cleanup status');
+    throw new CleanupApiError('CLEANUP_RESPONSE');
   return data.configured;
 }
 export async function proofreadPage(
@@ -60,18 +103,7 @@ export async function proofreadPage(
     body: JSON.stringify({ text, pageId }),
     signal,
   });
-  if (!response.ok) {
-    const data: unknown = await response.json().catch(() => null);
-    throw new CleanupApiError(
-      data &&
-        typeof data === 'object' &&
-        'code' in data &&
-        typeof data.code === 'string'
-        ? data.code
-        : 'CLEANUP_UNAVAILABLE',
-    );
-  }
-  const data: unknown = await response.json();
+  const data = await cleanupJson(response);
   if (data && typeof data === 'object' && 'status' in data) {
     if (data.status === 'unavailable') return { status: 'unavailable' };
     if (
@@ -83,7 +115,7 @@ export async function proofreadPage(
     )
       return { status: 'applied', correctedText: data.correctedText };
   }
-  throw new Error('Unexpected text cleanup response');
+  throw new CleanupApiError('CLEANUP_RESPONSE');
 }
 
 export async function getHealth(): Promise<HealthResponse> {
