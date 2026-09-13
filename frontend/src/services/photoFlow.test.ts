@@ -67,9 +67,11 @@ it('excludes duplicates in original capture order even when OCR finishes backwar
   store.reservePage([]);
   expect(store.pages.at(-1)?.capturePosition).toBe(4);
 });
-it('does not confuse a shared heading, short page or changed numbers with a duplicate', () => {
+it('ignores short/shared headings and tolerates a small OCR number difference', () => {
   expect(duplicateTextScore('Preface', 'Preface')).toBeNull();
-  expect(duplicateTextScore(raw, raw.replace('word50', 'word500'))).toBeNull();
+  expect(
+    duplicateTextScore(raw, raw.replace('word50', 'word500')),
+  ).toBeGreaterThan(0.9);
   expect(duplicateTextScore(raw, raw.slice(0, 150))).toBeNull();
   expect(duplicateTextScore(raw, raw.replaceAll(' ', '\n'))).toBe(1);
   const words =

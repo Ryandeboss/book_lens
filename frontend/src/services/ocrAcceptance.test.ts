@@ -5,14 +5,14 @@ import { createOcrQueue } from './ocrQueue';
 import { createProofreadingOcr } from './proofreadingOcr';
 import { useScanStore } from '../stores/scan';
 import type { OcrResult } from '../types/Page';
-it.each([0, 1, 84, 84.9999, undefined, NaN, Infinity, 101])(
-  'rejects invalid/below-85 scores (%s)',
+it.each([0, 1, 79, 79.9999, undefined, NaN, Infinity, 101])(
+  'rejects invalid/below-80 scores (%s)',
   (confidence) => {
     expect(meetsOcrConfidence({ rawText: 'page', confidence })).toBe(false);
   },
 );
-it.each([85, 85.01, 99, 100])(
-  'accepts unrounded scores at or above 85 (%s)',
+it.each([80, 80.01, 99, 100])(
+  'accepts unrounded scores at or above 80 (%s)',
   (confidence) => {
     expect(meetsOcrConfidence({ rawText: 'page', confidence })).toBe(true);
   },
@@ -25,7 +25,7 @@ it('inspects before reserving a page, reuses accepted OCR and only then starts c
   setActivePinia(createPinia());
   const store = useScanStore();
   const primary = {
-    recognize: vi.fn(async () => ({ rawText: 'original', confidence: 85 })),
+    recognize: vi.fn(async () => ({ rawText: 'original', confidence: 80 })),
     terminate: vi.fn(async () => {}),
   };
   const cleanup = vi.fn(async () => ({
@@ -50,7 +50,7 @@ it('inspects before reserving a page, reuses accepted OCR and only then starts c
     capturePosition: 1,
     rawText: 'original',
     editedText: 'corrected',
-    confidence: 85,
+    confidence: 80,
   });
   expect(queue.pendingBytes.value).toBe(0);
   await queue.dispose();
@@ -59,7 +59,7 @@ it('does not reserve a number or run cleanup for a rejected candidate', async ()
   setActivePinia(createPinia());
   const store = useScanStore();
   const primary = {
-    recognize: vi.fn(async () => ({ rawText: 'bad', confidence: 84.99 })),
+    recognize: vi.fn(async () => ({ rawText: 'bad', confidence: 79.99 })),
     terminate: vi.fn(async () => {}),
   };
   const cleanup = vi.fn();

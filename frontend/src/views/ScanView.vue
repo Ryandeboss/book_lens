@@ -16,6 +16,8 @@ import { useAutoScan } from '../composables/useAutoScan';
 import { useOcrQueue } from '../composables/useOcrQueue';
 import { useScanStore } from '../stores/scan';
 import { scannerDebug } from '../config/scanner';
+import AiCleanupOptions from '../components/scan/AiCleanupOptions.vue';
+import { minimumOcrConfidence } from '../services/ocrAcceptance';
 const OcrComparison =
   import.meta.env.DEV && scannerDebug
     ? defineAsyncComponent(() => import('../components/scan/OcrComparison.vue'))
@@ -82,14 +84,10 @@ watch(isActive, (value) => {
       <h1>Turn pages. Keep the words.</h1>
       <p>
         Hold a page still and in focus. Keep it in view while OCR checks the
-        trial photo. A green flash confirms it reached at least 85% OCR
-        confidence and was saved. Then you have two seconds to turn the page. AI
-        cleanup continues in the background.
+        trial photo. A green flash confirms it reached at least
+        {{ minimumOcrConfidence }}% OCR confidence and was saved. Then you have
+        two seconds to turn the page. AI cleanup continues in the background.
       </p>
-      <label class="cleanup-option">
-        <input v-model="session.cleanupEnabled" type="checkbox" />
-        Clean up OCR text with AI when available
-      </label>
       <p class="scan-hint">
         With cleanup enabled, OCR text is sent to OpenAI. You can review the
         original and undo corrections. Photos stay only in temporary memory;
@@ -115,6 +113,7 @@ watch(isActive, (value) => {
         >Review Document</AppButton
       >
     </template>
+    <AiCleanupOptions />
     <OcrComparison v-if="scannerDebug && OcrComparison && !isActive" />
     <p v-if="error" class="scan-error" role="alert">{{ error }}</p>
     <div v-if="isActive && !finishing" class="scanner-live">
@@ -153,8 +152,8 @@ watch(isActive, (value) => {
         v-if="machine.state === 'searching' || machine.state === 'detected'"
         class="scan-hint"
       >
-        Show one page and hold briefly. Saving requires at least 85% OCR
-        confidence.
+        Show one page and hold briefly. Saving requires at least
+        {{ minimumOcrConfidence }}% OCR confidence.
       </p>
       <p class="counts">
         {{ session.pages.length }} shots saved · {{ processed }} processed<span

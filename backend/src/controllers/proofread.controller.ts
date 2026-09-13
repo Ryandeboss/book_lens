@@ -44,7 +44,11 @@ export const proofread: RequestHandler = async (req, res, next) => {
     res.json(result);
   } catch (error) {
     logger.warn(
-      { pageId: parsed.data.pageId, duration: Date.now() - start },
+      {
+        pageId: parsed.data.pageId,
+        duration: Date.now() - start,
+        code: error instanceof OcrError ? error.code : 'CLEANUP_UNAVAILABLE',
+      },
       'Text cleanup unavailable',
     );
     next(error);

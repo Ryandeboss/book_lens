@@ -70,10 +70,13 @@ export function createOcrQueue(
     try {
       if (session.pages.some((p) => p.id === job.id)) {
         session.setProcessing(job.id);
+        const duplicate = session.pages.find((p) => p.id === job.id);
         const result = job.result
-          ? engine.refine
-            ? await engine.refine(job.result, job.id)
-            : job.result
+          ? duplicate?.duplicateOf && !duplicate.keepDuplicate
+            ? { ...job.result, cleanupStatus: 'disabled' as const }
+            : engine.refine
+              ? await engine.refine(job.result, job.id)
+              : job.result
           : await engine.recognize(job.blob, job.id);
         if (
           current === generation &&
@@ -129,6 +132,7 @@ export function createOcrQueue(
       visualFingerprint,
       inspected?.id,
     );
+    if (inspected?.result) session.recordOcr(id, inspected.result);
     submit(id, blob, inspected?.result ?? undefined);
     return id;
   }

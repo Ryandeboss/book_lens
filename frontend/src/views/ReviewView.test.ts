@@ -1,3 +1,7 @@
+vi.mock('../services/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../services/api')>()),
+  getProofreadStatus: vi.fn(async () => true),
+}));
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
@@ -7,9 +11,63 @@ import { useScanStore } from '../stores/scan';
 import { downloadText } from '../services/downloadText';
 import { ocrQueueKey } from '../composables/useOcrQueue';
 import { createOcrQueue } from '../services/ocrQueue';
+import * as api from '../services/api';
 
 vi.mock('../services/downloadText', () => ({ downloadText: vi.fn() }));
 afterEach(() => vi.restoreAllMocks());
+it('runs cleanup from Review, keeps raw OCR and preserves edits made during the request', async () => {
+  const pinia = createPinia();
+  setActivePinia(pinia);
+  const store = useScanStore();
+  store.addPage({ rawText: 'original OCR', editedText: 'original OCR' });
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/review', component: ReviewView }],
+  });
+  await router.push('/review');
+  const queue = createOcrQueue(store, {
+    recognize: vi.fn(),
+    terminate: vi.fn(async () => {}),
+  });
+  let finish!: (r: api.CleanupResult) => void;
+  const request = vi.spyOn(api, 'proofreadPage').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const wrapper = mount(ReviewView, {
+    global: {
+      plugins: [pinia, router],
+      provide: { [ocrQueueKey as symbol]: queue },
+    },
+  });
+  await wrapper
+    .findAll('button')
+    .find((b) => b.text() === 'Clean up with AI')!
+    .trigger('click');
+  expect(request).toHaveBeenCalledWith(
+    'original OCR',
+    store.pages[0]!.id,
+    expect.any(AbortSignal),
+  );
+  await wrapper.get('textarea').setValue('My manual edit');
+  finish({ status: 'applied', correctedText: 'Corrected OCR' });
+  await flushPromises();
+  expect(store.pages[0]).toMatchObject({
+    rawText: 'original OCR',
+    editedText: 'My manual edit',
+    correctedText: 'Corrected OCR',
+    cleanupStatus: 'applied',
+  });
+  await wrapper
+    .findAll('button')
+    .find((b) => b.text() === 'Use cleaned text')!
+    .trigger('click');
+  expect(store.combinedText).toBe('Corrected OCR');
+  wrapper.unmount();
+  await queue.dispose();
+});
 it('restores a duplicate at its original position and can undo AI cleanup before TXT export', async () => {
   const pinia = createPinia();
   setActivePinia(pinia);

@@ -96,6 +96,8 @@ try {
   )
     throw new Error('Captured moving page');
   console.log('PASS motion prevents capture');
+  if (!(await evaluate("!!document.querySelector('.cleanup-options input')")))
+    throw new Error('AI cleanup option hidden while scanning');
   await evaluate('window.moving=false');
   await wait("!!document.querySelector('.scan-sweep')");
   if (
@@ -191,6 +193,15 @@ try {
     throw new Error('Camera leaked');
   console.log(
     'PASS real corrected-page OCR, capture order, Done drain, camera cleanup',
+  );
+  if (!(await evaluate("!!document.querySelector('.cleanup-options')")))
+    throw new Error('Missing Review cleanup options');
+  await click('Clean up with AI');
+  await wait(
+    "document.body.innerText.includes('The backend has no OpenAI key configured.')",
+  );
+  console.log(
+    'PASS visible cleanup controls, manual request and missing-key feedback',
   );
   const workers = await evaluate(
     '({created:window.workers.length,stopped:window.stops})',

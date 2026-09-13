@@ -3,7 +3,7 @@
 ## What the user sees
 
 1. Center a page and hold it still with sufficient light and focus.
-2. A temporary photo is read by OCR. Keep the page in view. Green means **OCR confidence reached at least 85% and the shot was accepted**.
+2. A temporary photo is read by OCR. Keep the page in view. Green means **OCR confidence reached at least 80% and the shot was accepted**.
 3. Turn the page during the two-second pause. The camera then seeks another clear shot.
 4. AI cleanup runs behind the scenes. The OCR confidence check must finish before each acceptance; press Done when finished photographing.
 5. Keep the tab open until processing finishes. Review, undo corrections or restore duplicates, then Download TXT.
@@ -27,7 +27,7 @@ The existing Render service still uses root directory `backend`. Google OCR setu
 
 4. Save and redeploy the backend. Reload the deployed frontend after its deployment completes.
 5. Open `https://YOUR-RENDER-SERVICE.onrender.com/api/proofread/status`. `{"configured":true}` means a key exists, not that billing/model access has been verified.
-6. Leave **Clean up OCR text with AI when available** checked before starting the camera. Scan one page, press Done, then inspect **Original OCR and corrections** in Review. An unavailable service leaves original OCR usable.
+6. Leave **AI cleanup for new pages** checked before starting the camera. Scan one page, press Done, then inspect **Original OCR and corrections** in Review. An unavailable service leaves original OCR usable.
 
 For local development, put these settings in ignored `backend/.env` and restart the backend. Do not use root `.env` for backend API settings, do not overwrite existing Google settings, and never add `VITE_OPENAI_API_KEY` or put the key in Vercel. Docker intentionally remains credential-free by default; configure runtime secrets separately if using Docker with paid providers.
 
@@ -49,7 +49,7 @@ Expected: `status: applied` and `correctedText`. Without a key, it returns `stat
 
 ## Duplicate and correction limits
 
-Duplicates are compared using original OCR, before considering the cleanup output. At least 50 words, nearly equal lengths and a 96% five-word sequence match are required; exact normalized matches also qualify. Different number sequences prevent a fuzzy match. Shared headings, brief title pages or imperfect OCR may remain as separate pages. Nothing is silently deleted. Original shot numbers survive deletion and out-of-order processing; included text keeps capture order.
+Duplicates are compared using original OCR in sequence, before considering AI output. Exact normalized repeats of at least 20 words qualify; longer pages (at least 40 words) qualify when word edit distance is at most 10% of the longer page. Small typos, missing words, extra words and OCR number differences can therefore still match. Shared short headings and substantially reordered/different pages stay separate. The later copy is marked with the original shot number and excluded from both combined preview and TXT. Nothing is deleted automatically; restore it if a near-identical page should be kept.
 
 Cleanup corrects likely OCR typos and formatting without intentional paraphrasing. It sees text only, so it cannot reliably recover missing passages or prove a guessed word matches the photograph. Conservative output guards reject large changes but cannot guarantee correctness. Raw OCR is immutable through editing; Review offers the original and corrected representations separately.
 
@@ -63,7 +63,7 @@ Automated tests mock OpenAI and Google, covering cleanup success/failure/cancell
 
 ## Verification for this change
 
-- Confidence-gate tests cover scores below/exactly/above 85%, missing/invalid scores, blank text, cancellation, no page-number consumption on rejection and reuse of accepted OCR without another paid call. Paid provider calls are mocked.
+- Confidence-gate tests cover scores below/exactly/above 80%, missing/invalid scores, blank text, cancellation, no page-number consumption on rejection and reuse of accepted OCR without another paid call. Paid provider calls are mocked.
 - Lint, TypeScript checks and frontend/backend production builds pass. Docker images build and Nginx/API start healthy.
 - Real Edge browser checks use generated moving/still camera frames, real OpenCV correction, real multipart uploads to the credential-free backend, and real Tesseract fallback. They verify the saved-shot flash, no analysis during the two-second pause, repeated capture while processing continues, duplicate-text exclusion, page order, Done drain and worker/camera cleanup.
 - The borderless-page variant also deliberately breaks worker canvas support and verifies the pixel-transfer recovery path. Both browser variants pass without paid requests.
@@ -73,8 +73,16 @@ Automated tests mock OpenAI and Google, covering cleanup success/failure/cancell
 
 Google Document AI provides confidence on token layouts. BookLens derives a character-weighted mean of the token scores, reported on a 0-100 scale, **only when scored token anchors cover all recognized text**. Missing/invalid scores or incomplete coverage leave confidence unavailable and the shot is not accepted. Paragraph confidence keeps Google's original 0-1 scale and is not used for acceptance. See the [Document AI layout/token reference](https://docs.cloud.google.com/document-ai/docs/reference/rest/v1/Document#Layout).
 
-Tesseract already reports its OCR confidence on a 0-100 scale. Both engines use the same inclusive 85-point acceptance threshold; blank text cannot pass. These scores estimate the engine's certainty, not a guarantee that 85% of the words are correct, and scores from different engines are not perfectly calibrated against each other. AI cleanup cannot raise the acceptance score: it runs only after acceptance. The accepted OCR result is reused for cleanup/review, avoiding a second OCR call.
+Tesseract already reports its OCR confidence on a 0-100 scale. Both engines use the same inclusive 80-point acceptance threshold; blank text cannot pass. These scores estimate the engine's certainty, not a guarantee that 80% of the words are correct, and scores from different engines are not perfectly calibrated against each other. AI cleanup cannot raise the acceptance score: it runs only after acceptance. The accepted OCR result is reused for cleanup/review, avoiding a second OCR call.
 
 Pause, Stop, Done and navigation abort the confidence check and discard late results. Previously accepted pages and their background cleanup remain intact. No additional environment variable is required; the threshold is in `frontend/src/services/ocrAcceptance.ts`.
 
-The confidence-gate change passes 172 automated tests (135 frontend, 37 backend), lint, typechecks, production builds and Docker. A real browser run with generated pages confirms successful Tesseract OCR before green acceptance, continued cleanup, duplicate exclusion and resource cleanup. Real Google confidence extraction is covered by mocked token/layout tests; physical phone and configured Google quality checks remain manual.
+The updated workflow passes 186 automated tests (143 frontend, 43 backend), lint, typechecks, production builds and Docker. A real browser run with generated pages confirms successful Tesseract OCR before green acceptance, continued cleanup, duplicate exclusion and resource cleanup. Real Google confidence extraction is covered by mocked token/layout tests; physical phone and configured Google quality checks remain manual.
+
+## Finding and retrying AI cleanup
+
+The earlier checkbox disappeared when the camera started, and Review had no action to request cleanup. The AI cleanup panel now stays visible on Scan and Review. It reads `/api/proofread/status` from the same backend used for OCR and distinguishes a detected key, a missing key, and an unreachable backend. Detecting a key does not prove model access or API billing.
+
+In Review, choose **Clean remaining pages with AI** for included pages that have not been cleaned, or **Clean up with AI** on one page. These actions use existing raw OCR, require no image upload or OCR retry, and work even if automatic cleanup was disabled or previously failed. Requests run one at a time; a backend failure stops the bulk operation. Raw OCR and manual edits are preserved. If you edited a page yourself, choose **Use cleaned text** to replace those edits after reviewing the result. Excluded duplicates are skipped unless restored.
+
+Known failures now show safe guidance for rejected keys, inaccessible/missing models, invalid model settings, exhausted API quota/credits and rate limits. Check the visible status and error before changing Render settings. Keep `OPENAI_API_KEY` and `OPENAI_PROOFREAD_MODEL` only on the backend; no extra variables or credentials belong in Vercel. The automatic confidence threshold is now 80% for both manual and automatic capture.

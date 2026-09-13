@@ -6,6 +6,35 @@ import { proofreadText } from '../src/services/proofread.service.js';
 const pageId = 'c001dd39-d738-4e87-a53c-b3d71826d808';
 const originalKey = env.OPENAI_API_KEY;
 const fetchMock = vi.fn();
+it.each([
+  [401, 'invalid_api_key', 'CLEANUP_AUTH'],
+  [403, 'access_denied', 'CLEANUP_ACCESS'],
+  [404, 'model_not_found', 'CLEANUP_MODEL'],
+  [400, 'invalid_request', 'CLEANUP_CONFIG'],
+  [429, 'insufficient_quota', 'CLEANUP_QUOTA'],
+  [429, 'rate_limit_exceeded', 'CLEANUP_BUSY'],
+] as const)(
+  'returns a safe diagnostic for provider HTTP %s (%s)',
+  async (status, upstreamCode, expected) => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            code: upstreamCode,
+            message: 'private-page-and-key-content',
+          },
+        }),
+        { status },
+      ),
+    );
+    const res = await request(app)
+      .post('/api/proofread')
+      .send({ pageId, text: 'OCR page text' });
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe(expected);
+    expect(res.text).not.toContain('private-page-and-key-content');
+  },
+);
 it('limits active upstream calls and releases slots after completion', async () => {
   const finish: ((response: Response) => void)[] = [];
   fetchMock.mockImplementation(

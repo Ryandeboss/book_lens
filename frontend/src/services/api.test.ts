@@ -1,9 +1,28 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { ocrPage } from './api';
+import { ocrPage, proofreadPage, cleanupFailure } from './api';
 import { ocrConfig } from '../config/ocr';
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
+});
+it('shows safe cleanup diagnostics instead of upstream text or credentials', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({
+        code: 'CLEANUP_QUOTA',
+        error: 'private upstream data',
+      }),
+    }),
+  );
+  try {
+    await proofreadPage('raw', 'id', new AbortController().signal);
+    throw new Error('Expected failure');
+  } catch (error) {
+    expect(cleanupFailure(error)).toContain('credits or quota');
+    expect(cleanupFailure(error)).not.toContain('private upstream data');
+  }
 });
 it('passes the Google OCR percentage through without confusing paragraph confidence', async () => {
   vi.stubGlobal(

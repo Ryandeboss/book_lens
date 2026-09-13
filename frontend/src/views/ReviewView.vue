@@ -6,10 +6,13 @@ import PageTextEditor from '../components/scan/PageTextEditor.vue';
 import { useScanStore } from '../stores/scan';
 import { downloadText } from '../services/downloadText';
 import { useOcrQueue } from '../composables/useOcrQueue';
+import AiCleanupOptions from '../components/scan/AiCleanupOptions.vue';
+import { useReviewCleanup } from '../composables/useReviewCleanup';
 
 const session = useScanStore();
 const router = useRouter();
 const queue = useOcrQueue();
+const cleanup = useReviewCleanup();
 const exportError = ref('');
 function removePage(id: string) {
   if (window.confirm('Delete this page from your document?')) {
@@ -49,6 +52,23 @@ function download() {
   <section class="document-review">
     <p class="eyebrow">02 / REVIEW</p>
     <h1>Your document</h1>
+    <AiCleanupOptions />
+    <button
+      class="secondary-button"
+      type="button"
+      :disabled="cleanup.busy.value || !cleanup.remaining.value.length"
+      @click="cleanup.cleanRemaining"
+    >
+      {{
+        cleanup.busy.value
+          ? 'Cleaning text...'
+          : 'Clean remaining pages with AI'
+      }}
+    </button>
+    <p class="scan-hint">
+      Cleanup uses existing OCR, without scanning again. Your manual edits stay
+      in place; use the cleaned version below when ready.
+    </p>
     <p>
       {{ session.pages.length }}
       {{ session.pages.length === 1 ? 'page' : 'pages' }} · Edits stay in this
@@ -112,6 +132,24 @@ function download() {
         Very little text was detected. Review, edit, or delete this page.
       </p>
       <template v-if="page.status === 'ready'">
+        <button
+          type="button"
+          class="secondary-button"
+          :disabled="
+            cleanup.busy.value ||
+            !page.rawText.trim() ||
+            page.rawText.length > 20000
+          "
+          @click="cleanup.cleanPage(page.id)"
+        >
+          {{
+            cleanup.activeId.value === page.id
+              ? 'Cleaning this page...'
+              : page.cleanupStatus === 'applied'
+                ? 'Run AI cleanup again'
+                : 'Clean up with AI'
+          }}
+        </button>
         <p v-if="page.cleanupStatus === 'applied'" class="scan-hint">
           AI cleanup applied. Review corrections before downloading.
         </p>
@@ -122,7 +160,10 @@ function download() {
           "
           class="scan-hint"
         >
-          AI cleanup unavailable; original OCR kept.
+          {{
+            page.cleanupError ??
+            'AI cleanup unavailable; original OCR kept. Use Clean up with AI to retry.'
+          }}
         </p>
         <details>
           <summary>Original OCR and corrections</summary>

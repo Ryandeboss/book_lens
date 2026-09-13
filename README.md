@@ -23,7 +23,7 @@ A mobile-first web application for turning printed pages into editable text. Boo
 
 ## Scan a book
 
-Run `npm.cmd run dev` and open http://localhost:5173/scan. Start Camera and center one page. BookLens checks motion, lighting and focus, then takes a temporary trial photo after a brief steady hold. **A shot is saved and flashes green only after OCR reports at least 85% confidence.** Keep the page in view during the OCR check. Low or missing confidence pauses scanning without adding a page; adjust focus/lighting and tap Resume. Turn the page during the two-second pause; the camera then looks for another clear, steady shot. Printed-text detection is optional and no clear margin is required.
+Run `npm.cmd run dev` and open http://localhost:5173/scan. Start Camera and center one page. BookLens checks motion, lighting and focus, then takes a temporary trial photo after a brief steady hold. **A shot is saved and flashes green only after OCR reports at least 80% confidence.** Keep the page in view during the OCR check. Low or missing confidence pauses scanning without adding a page; adjust focus/lighting and tap Resume. Turn the page during the two-second pause; the camera then looks for another clear, steady shot. Printed-text detection is optional and no clear margin is required.
 
 A detected page is perspective-corrected, including headings and footnotes. Without reliable page corners, the full visible photograph is retained. Native still-photo capture is preferred where supported; otherwise the actual video resolution is used. Images are compressed at high quality. Up to 30 pending photos / 48 MiB can queue while optional AI cleanup runs independently of capture. The OCR confidence check itself must finish before each shot is accepted. At the memory limit, scanning waits for capacity automatically. Photos exist temporarily in this tab, not in a persistent gallery; keep it open.
 
@@ -33,7 +33,7 @@ See the [automatic capture report and phone tuning checklist](docs/automatic-cap
 
 If page analysis fails, BookLens tries a compatible pixel-transfer path once. Resume rebuilds page detection and restarts a paused preview. Loading/initialization failures now provide specific recovery guidance. After a scanner update is deployed, reload the site once to load the new code.
 
-Pause stops automatic acceptance. Resume restarts detection; Manual Capture bypasses the visual stability gates but still requires 85% OCR confidence and refreshes detection before photographing the visible preview. Manual captures also enter the OCR queue and are checked for duplicate text afterward. Stop Camera releases the camera; accepted pages remain available in Review. Backgrounding pauses scanning and requires an explicit Resume.
+Pause stops automatic acceptance. Resume restarts detection; Manual Capture bypasses the visual stability gates but still requires 80% OCR confidence and refreshes detection before photographing the visible preview. Manual captures also enter the OCR queue and are checked for duplicate text afterward. Stop Camera releases the camera; accepted pages remain available in Review. Backgrounding pauses scanning and requires an explicit Resume.
 
 Done stops the camera and new captures, discards any unaccepted trial photo, waits for accepted-page cleanup, then opens Review. Edit or delete pages and Download TXT. Raw OCR and AI-corrected text stay separate from editable text. Use original OCR / Use cleaned text switches representations without losing either. TXT uses edited text in capture order, excluding set-aside duplicates, separated by three newlines. Failed pages offer Retry while their temporary image remains available, or instructions to delete/rescan. Nearly blank OCR results are marked for review. Start New Scan asks before clearing the document.
 
@@ -59,13 +59,13 @@ The public OCR endpoint has per-process concurrency and request-rate limits, but
 
 ## Optional AI text cleanup
 
-[Enable cleanup on Render and test a page](docs/photo-flow-and-cleanup.md). The default model is `gpt-5.4-nano`, configured with a backend-only `OPENAI_API_KEY`. No key is required for scanning or OCR. The checkbox before starting the camera controls cleanup for subsequent jobs. When enabled and configured, OCR text passes through Render to OpenAI; images are not sent to OpenAI. Cleanup can correct likely transcription errors and paragraph formatting, but inferred words may be wrong: review before exporting. Raw OCR is always retained. No local model server is required.
+[Enable cleanup on Render and test a page](docs/photo-flow-and-cleanup.md). The default model is `gpt-5.4-nano`, configured with a backend-only `OPENAI_API_KEY`. No key is required for scanning or OCR. The AI cleanup checkbox stays visible before and during scanning, and in Review, and controls cleanup for new pages. When enabled and configured, OCR text passes through Render to OpenAI; images are not sent to OpenAI. Cleanup can correct likely transcription errors and paragraph formatting, but inferred words may be wrong: review before exporting. Raw OCR is always retained. No local model server is required.
 
 ## Architecture
 
 ```text
 Camera -> clear/still page -> corrected trial photo -> Google OCR (Tesseract fallback)
-       -> OCR confidence >=85% -> accept shot + green -> two-second pause
+       -> OCR confidence >=80% -> accept shot + green -> two-second pause
        -> low/missing confidence -> not saved; adjust camera and Resume
 Accepted OCR -> background AI cleanup -> duplicate review -> TXT
 ```

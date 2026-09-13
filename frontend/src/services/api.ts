@@ -8,6 +8,47 @@ const apiUrl = (
 
 export type CleanupResult =
   { status: 'applied'; correctedText: string } | { status: 'unavailable' };
+const cleanupMessages: Record<string, string> = {
+  CLEANUP_AUTH:
+    'OpenAI rejected the server API key. Check the key in Render and redeploy.',
+  CLEANUP_ACCESS: 'The OpenAI project does not have access to this model.',
+  CLEANUP_MODEL:
+    'The configured OpenAI model is unavailable. Check OPENAI_PROOFREAD_MODEL in Render.',
+  CLEANUP_CONFIG:
+    'OpenAI rejected the model configuration. Check the Render model setting.',
+  CLEANUP_QUOTA:
+    'OpenAI API credits or quota are exhausted. Check API billing.',
+  CLEANUP_BUSY: 'AI cleanup is busy or rate limited. Try again shortly.',
+  CLEANUP_UNAVAILABLE:
+    'AI cleanup is temporarily unavailable. Try again; original OCR is kept.',
+};
+export class CleanupApiError extends Error {
+  constructor(code: string) {
+    super(cleanupMessages[code] ?? cleanupMessages.CLEANUP_UNAVAILABLE);
+  }
+}
+export const cleanupFailure = (error: unknown) =>
+  error instanceof CleanupApiError
+    ? error.message
+    : 'Could not reach AI cleanup. Check the connection and try again; original OCR is kept.';
+export async function getProofreadStatus(
+  signal?: AbortSignal,
+): Promise<boolean> {
+  const response = await fetch(`${apiUrl}/proofread/status`, {
+    signal: signal ?? AbortSignal.timeout(8000),
+    cache: 'no-store',
+  });
+  if (!response.ok) throw new Error('Cleanup status unavailable');
+  const data: unknown = await response.json();
+  if (
+    !data ||
+    typeof data !== 'object' ||
+    !('configured' in data) ||
+    typeof data.configured !== 'boolean'
+  )
+    throw new Error('Invalid cleanup status');
+  return data.configured;
+}
 export async function proofreadPage(
   text: string,
   pageId: string,
@@ -19,7 +60,17 @@ export async function proofreadPage(
     body: JSON.stringify({ text, pageId }),
     signal,
   });
-  if (!response.ok) throw new Error('Text cleanup unavailable');
+  if (!response.ok) {
+    const data: unknown = await response.json().catch(() => null);
+    throw new CleanupApiError(
+      data &&
+        typeof data === 'object' &&
+        'code' in data &&
+        typeof data.code === 'string'
+        ? data.code
+        : 'CLEANUP_UNAVAILABLE',
+    );
+  }
   const data: unknown = await response.json();
   if (data && typeof data === 'object' && 'status' in data) {
     if (data.status === 'unavailable') return { status: 'unavailable' };

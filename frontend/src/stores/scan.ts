@@ -75,6 +75,7 @@ export const useScanStore = defineStore('scan', () => {
       page.correctedText = result.correctedText;
       page.editedText = result.correctedText ?? result.rawText;
       page.cleanupStatus = result.cleanupStatus;
+      page.cleanupError = result.cleanupError;
       page.confidence = result.confidence;
       page.ocrProvider = result.ocrProvider;
       page.paragraphs = result.paragraphs;
@@ -84,13 +85,24 @@ export const useScanStore = defineStore('scan', () => {
       findDuplicates();
     }
   }
+  function recordOcr(id: string, result: OcrResult) {
+    const page = pages.value.find((p) => p.id === id);
+    if (!page) return;
+    page.rawText = result.rawText;
+    page.editedText = result.rawText;
+    page.confidence = result.confidence;
+    page.ocrProvider = result.ocrProvider;
+    page.paragraphs = result.paragraphs;
+    page.detectedLanguages = result.detectedLanguages;
+    findDuplicates();
+  }
   function findDuplicates() {
     const originals: ScannedPage[] = [];
     // Array order is capture order, regardless of OCR completion order.
     for (const page of pages.value) {
       page.duplicateOf = undefined;
       page.duplicateScore = undefined;
-      if (page.status !== 'ready') continue;
+      if (!page.rawText.trim()) continue;
       for (const original of originals) {
         const score = duplicateTextScore(page.rawText, original.rawText);
         if (score !== null) {
@@ -105,6 +117,27 @@ export const useScanStore = defineStore('scan', () => {
   function keepDuplicate(id: string, keep: boolean) {
     const page = pages.value.find((p) => p.id === id);
     if (page) page.keepDuplicate = keep;
+  }
+  function applyCleanup(
+    id: string,
+    rawText: string,
+    editedBefore: string,
+    result: {
+      correctedText?: string;
+      cleanupStatus: ScannedPage['cleanupStatus'];
+      cleanupError?: string;
+    },
+    mayReplace: boolean,
+  ) {
+    const page = pages.value.find((p) => p.id === id);
+    if (!page || page.rawText !== rawText) return;
+    page.cleanupStatus = result.cleanupStatus;
+    page.cleanupError = result.cleanupError;
+    if (result.correctedText !== undefined) {
+      page.correctedText = result.correctedText;
+      if (mayReplace && page.editedText === editedBefore)
+        page.editedText = result.correctedText;
+    }
   }
   function failPage(id: string, message: string) {
     const page = pages.value.find((page) => page.id === id);
@@ -134,6 +167,7 @@ export const useScanStore = defineStore('scan', () => {
     includedPages,
     duplicatePages,
     keepDuplicate,
+    applyCleanup,
     currentPageNumber,
     combinedText,
     addPage,
@@ -141,6 +175,7 @@ export const useScanStore = defineStore('scan', () => {
     setQueued,
     setProcessing,
     completePage,
+    recordOcr,
     failPage,
     updatePage,
     removePage,

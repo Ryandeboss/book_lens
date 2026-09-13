@@ -1,5 +1,5 @@
 import type { OcrResult } from '../types/Page';
-export const minimumOcrConfidence = 85;
+export const minimumOcrConfidence = 80;
 export function meetsOcrConfidence(
   result: OcrResult | null,
 ): result is OcrResult & { confidence: number } {

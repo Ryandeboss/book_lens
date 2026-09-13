@@ -17,7 +17,9 @@ export interface ScannedPage {
   pageNumber: number;
   capturePosition?: number;
   correctedText?: string;
-  cleanupStatus?: 'applied' | 'unavailable' | 'failed' | 'disabled';
+  cleanupStatus?:
+    'applied' | 'unavailable' | 'failed' | 'disabled' | 'processing';
+  cleanupError?: string;
   duplicateOf?: string;
   duplicateScore?: number;
   keepDuplicate?: boolean;
@@ -36,6 +38,7 @@ export interface OcrResult {
   rawText: string;
   correctedText?: string;
   cleanupStatus?: ScannedPage['cleanupStatus'];
+  cleanupError?: string;
   confidence?: number;
   ocrProvider?: OcrProvider;
   paragraphs?: OcrParagraph[];

@@ -1,4 +1,4 @@
-import { proofreadPage } from './api';
+import { proofreadPage, cleanupFailure } from './api';
 import type { OcrEngine } from './ocrQueue';
 import type { OcrResult } from '../types/Page';
 
@@ -36,10 +36,14 @@ export function createProofreadingOcr(
         correctedText:
           cleanup.status === 'applied' ? cleanup.correctedText : undefined,
       };
-    } catch {
+    } catch (error) {
       if (current !== generation) return null;
       unavailableUntil = Date.now() + 60000;
-      return { ...result, cleanupStatus: 'failed' };
+      return {
+        ...result,
+        cleanupStatus: 'failed',
+        cleanupError: cleanupFailure(error),
+      };
     } finally {
       clearTimeout(timeout);
       controllers.delete(controller);

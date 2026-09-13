@@ -51,7 +51,32 @@ export async function proofreadText(text: string, signal?: AbortSignal) {
         max_output_tokens: 8192,
       }),
     });
-    if (!response.ok) throw new Error('Provider unavailable');
+    if (!response.ok) {
+      let code =
+        response.status === 401
+          ? 'CLEANUP_AUTH'
+          : response.status === 403
+            ? 'CLEANUP_ACCESS'
+            : response.status === 404
+              ? 'CLEANUP_MODEL'
+              : response.status === 400
+                ? 'CLEANUP_CONFIG'
+                : response.status === 429
+                  ? 'CLEANUP_BUSY'
+                  : 'CLEANUP_UNAVAILABLE';
+      if (response.status === 429) {
+        const body = z
+          .object({ error: z.object({ code: z.string().optional() }) })
+          .safeParse(await response.json().catch(() => null));
+        if (body.success && body.data.error.code === 'insufficient_quota')
+          code = 'CLEANUP_QUOTA';
+      }
+      throw new OcrError(
+        503,
+        code,
+        'AI cleanup could not complete. Original OCR is preserved.',
+      );
+    }
     const output = outputSchema.parse(await response.json());
     const content = output.output
       .filter((item) => item.type === 'message')
@@ -80,7 +105,8 @@ export async function proofreadText(text: string, signal?: AbortSignal) {
     )
       throw new Error('Unexpected rewrite');
     return { status: 'applied' as const, correctedText };
-  } catch {
+  } catch (error) {
+    if (error instanceof OcrError) throw error;
     // Never propagate the upstream response, key, prompt or page text to logs.
     throw new OcrError(
       503,

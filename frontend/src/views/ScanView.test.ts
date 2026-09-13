@@ -1,4 +1,8 @@
-﻿import { flushPromises, mount } from '@vue/test-utils';
+vi.mock('../services/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../services/api')>()),
+  getProofreadStatus: vi.fn(async () => true),
+}));
+import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
@@ -146,6 +150,12 @@ async function advance(ms: number) {
   await vi.advanceTimersByTimeAsync(ms);
   await flushPromises();
 }
+it('keeps the AI option visible with the camera running and shows the 80% requirement', async () => {
+  expect(wrapper.text()).toContain('80%');
+  expect(wrapper.find('.cleanup-options input').exists()).toBe(true);
+  await ready();
+  expect(wrapper.find('.cleanup-options input').exists()).toBe(true);
+});
 it('waits for OCR confidence before saving or showing green, then reuses the OCR', async () => {
   let complete!: (result: OcrResult) => void;
   engine.recognize.mockReturnValue(
@@ -164,7 +174,7 @@ it('waits for OCR confidence before saving or showing green, then reuses the OCR
   expect(wrapper.find('.accepted-region').exists()).toBe(true);
   expect(engine.recognize).toHaveBeenCalledOnce();
 });
-it.each([84.99, undefined])(
+it.each([79.99, undefined])(
   'rejects %s confidence without adding a page, then accepts a better Resume attempt',
   async (confidence) => {
     engine.recognize.mockResolvedValue({
