@@ -51,6 +51,7 @@ const getUserMedia = vi.fn(),
   stop = vi.fn(),
   drawImage = vi.fn();
 const engine = {
+  inspect: (image: Blob, id: string) => engine.recognize(image, id),
   recognize: vi.fn(),
   refine: vi.fn<(result: OcrResult, id: string) => Promise<OcrResult | null>>(),
   terminate: vi.fn(async () => {}),
@@ -150,13 +151,15 @@ async function advance(ms: number) {
   await vi.advanceTimersByTimeAsync(ms);
   await flushPromises();
 }
-it('keeps the AI option visible with the camera running and shows the 80% requirement', async () => {
-  expect(wrapper.text()).toContain('80%');
-  expect(wrapper.find('.cleanup-options input').exists()).toBe(true);
+it('keeps the AI option visible and explains background OCR', async () => {
+  expect(wrapper.text()).not.toContain('80%');
+  expect(wrapper.text()).toContain(
+    'OCR and AI cleanup continue in the background',
+  );
   await ready();
   expect(wrapper.find('.cleanup-options input').exists()).toBe(true);
 });
-it('waits for OCR confidence before saving or showing green, then reuses the OCR', async () => {
+it('saves and flashes green before OCR finishes, then queues the next photo', async () => {
   let complete!: (result: OcrResult) => void;
   engine.recognize.mockReturnValue(
     new Promise<OcrResult>((resolve) => {
@@ -164,57 +167,41 @@ it('waits for OCR confidence before saving or showing green, then reuses the OCR
     }),
   );
   await ready();
-  await advance(1200);
-  expect(useScanStore().pages).toHaveLength(0);
-  expect(wrapper.text()).toContain('Checking OCR confidence');
-  expect(wrapper.get('.ocr-confidence').text()).toContain(
-    'measuring this photo',
-  );
-  expect(wrapper.get('progress').attributes('value')).toBeUndefined();
-  expect(wrapper.find('.accepted-region').exists()).toBe(false);
-  complete({ rawText: 'Read this page', confidence: 85 });
-  await flushPromises();
+  await advance(600);
   expect(useScanStore().pages).toHaveLength(1);
   expect(wrapper.find('.accepted-region').exists()).toBe(true);
+  expect(wrapper.text()).toContain('OCR queued');
+  await advance(3000);
+  expect(useScanStore().pages).toHaveLength(2);
   expect(engine.recognize).toHaveBeenCalledOnce();
-  expect(wrapper.get('.ocr-confidence').text()).toContain('85.0%');
-  await advance(1000);
+  await button('Pause').trigger('click');
+  complete({ rawText: 'Read this page', confidence: 85 });
+  await flushPromises();
+  expect(useScanStore().pages[0]).toMatchObject({
+    capturePosition: 1,
+    confidence: 85,
+  });
   expect(wrapper.get('.ocr-confidence').text()).toContain('85.0%');
 });
 it.each([79.99, undefined])(
-  'rejects %s confidence without adding a page, then accepts a better Resume attempt',
+  'keeps a photo with %s confidence without pausing capture',
   async (confidence) => {
     engine.recognize.mockResolvedValue({
       rawText: 'Uncertain page',
       confidence,
     });
     await ready();
-    await advance(1200);
-    expect(useScanStore().pages).toHaveLength(0);
-    expect(wrapper.text()).toContain('Shot not saved');
+    await advance(1100);
+    expect(useScanStore().pages).toHaveLength(1);
+    expect(wrapper.text()).not.toContain('Shot not saved');
     expect(wrapper.get('.ocr-confidence').text()).toContain(
       confidence === undefined ? 'unavailable (not 0%)' : '79.9%',
     );
-    if (confidence === undefined)
-      expect(wrapper.text()).toContain('no usable confidence score');
-    expect(wrapper.find('.accepted-region').exists()).toBe(false);
-    await advance(10000);
-    expect(engine.recognize).toHaveBeenCalledOnce();
-    engine.recognize.mockResolvedValue({
-      rawText: 'Better page',
-      confidence: 90,
-    });
-    await button('Resume').trigger('click');
-    await advance(1200);
-    expect(useScanStore().pages[0]).toMatchObject({
-      pageNumber: 1,
-      capturePosition: 1,
-      confidence: 90,
-    });
-    expect(wrapper.get('.ocr-confidence').text()).toContain('90.0%');
+    await advance(3000);
+    expect(useScanStore().pages).toHaveLength(2);
   },
 );
-it('Done cancels an unaccepted trial photo and ignores its late high-confidence result', async () => {
+it('Done stops capture and waits for OCR already queued', async () => {
   let complete!: (result: OcrResult) => void;
   engine.recognize.mockReturnValue(
     new Promise<OcrResult>((resolve) => {
@@ -222,13 +209,38 @@ it('Done cancels an unaccepted trial photo and ignores its late high-confidence 
     }),
   );
   await ready();
-  await advance(1200);
+  await advance(1100);
   await button('Done').trigger('click');
+  expect(useScanStore().pages).toHaveLength(1);
+  expect(router.currentRoute.value.path).toBe('/scan');
+  complete({ rawText: 'Queued result', confidence: 99 });
   await flushPromises();
-  complete({ rawText: 'Late result', confidence: 99 });
-  await flushPromises();
-  expect(useScanStore().pages).toHaveLength(0);
+  expect(useScanStore().pages[0]?.rawText).toBe('Queued result');
   expect(router.currentRoute.value.path).toBe('/review');
+});
+it('waits on clipped text, then captures a focused guide view without paper edges', async () => {
+  vision.analyze.mockResolvedValue({
+    ...page(),
+    hint: 'clippedText',
+    aligned: false,
+  });
+  await ready();
+  await advance(1800);
+  expect(useScanStore().pages).toHaveLength(0);
+  expect(wrapper.text()).toContain('text is cut off at the camera edge');
+  vision.analyze.mockResolvedValue({
+    ...page(),
+    source: 'guide',
+    corners: null,
+    captureCorners: [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 1, y: 1 },
+      { x: 0, y: 1 },
+    ],
+  });
+  await advance(1100);
+  expect(useScanStore().pages).toHaveLength(1);
 });
 describe('continuous scan screen', () => {
   it('automatically saves source-resolution photos and waits two seconds before looking again', async () => {

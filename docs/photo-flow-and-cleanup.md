@@ -3,12 +3,12 @@
 ## What the user sees
 
 1. Center a page and hold it still with sufficient light and focus.
-2. A temporary photo is read by OCR. Keep the page in view. Green means **OCR confidence reached at least 80% and the shot was accepted**.
+2. The current camera/focus/stability checks prepare a photo. Green means **the photo is queued**, so you can turn the page immediately. A lightweight local check asks you to move back if text lines are visibly cut off at the camera edge.
 3. Turn the page during the two-second pause. The camera then seeks another clear shot.
-4. AI cleanup runs behind the scenes. The OCR confidence check must finish before each acceptance; press Done when finished photographing.
+4. Google OCR and AI cleanup run behind the scenes. Neither holds up capture; press Done when finished photographing. Confidence appears when OCR finishes and is informational.
 5. Keep the tab open until processing finishes. Review, undo corrections or restore duplicates, then Download TXT.
 
-Low or unavailable confidence pauses without saving the candidate or using a page number. Improve the camera position, lighting or focus, then Resume. Manual Capture has the same confidence requirement. Rejected images are released; they do not go to AI cleanup. Repeated paid OCR is not triggered automatically on rejection. There is no visual page-turn lock. Repeated photos are allowed and checked after OCR. The queue retains at most 30 pending images / 48 MiB, with one active cleanup job by default (two configurable through the existing OCR setting). At the limit it waits for capacity. A failed OCR image can be retried within the existing two-image / 12 MiB retry cache. Success releases the image after the job; reset releases the queue. These are temporary browser objects, not durable saved photos.
+Low or unavailable OCR confidence does not pause capture or remove a queued photo. Manual Capture also queues OCR in the background. The existing guide fallback, native camera behavior, crop and two-second cooldown remain. No new mode, four-paper-edge rule or blank-margin requirement was added. There is no visual page-turn lock. Repeated photos are allowed and checked after OCR. The queue retains at most 30 pending images / 48 MiB, with one active cleanup job by default (two configurable through the existing OCR setting). At the limit it waits for capacity. A failed OCR image can be retried within the existing two-image / 12 MiB retry cache. Success releases the image after the job; reset releases the queue. These are temporary browser objects, not durable saved photos.
 
 ## Enable OpenAI on Render
 
@@ -61,7 +61,7 @@ Images travel phone → Render → Google for OCR; browser Tesseract is the fall
 
 Automated tests mock OpenAI and Google, covering cleanup success/failure/cancellation, unconfigured behavior, safe responses, duplicate restoration/order and the two-second photo loop. Real API quality and physical phone autofocus must be evaluated with your own configured service and book pages.
 
-## Verification for this change
+## Earlier confidence-gate verification (historical)
 
 - Confidence-gate tests cover scores below/exactly/above 80%, missing/invalid scores, blank text, cancellation, no page-number consumption on rejection and reuse of accepted OCR without another paid call. Paid provider calls are mocked.
 - Lint, TypeScript checks and frontend/backend production builds pass. Docker images build and Nginx/API start healthy.
@@ -69,17 +69,17 @@ Automated tests mock OpenAI and Google, covering cleanup success/failure/cancell
 - The borderless-page variant also deliberately breaks worker canvas support and verifies the pixel-transfer recovery path. Both browser variants pass without paid requests.
 - Physical phone autofocus/lighting and real OpenAI/Google transcription quality remain manual checks. Older scanner verification documents describe the previous visual page-lock behavior; this document describes the current photo-first flow.
 
-## Confidence semantics
+## Confidence semantics (score calculation retained; saving no longer gated)
 
 The backend explicitly requests `pages.tokens` in the Document AI field mask, including the token layout scores and text anchors needed for this calculation. An earlier request mask omitted tokens, so even successful Google transcription had no usable percentage. The endpoint regression test now emulates Google's field filtering to catch this omission. See [Google's process request field-mask reference](https://docs.cloud.google.com/document-ai/docs/reference/rest/v1/projects.locations.processors/process).
 
-The scanner displays **OCR confidence: measuring this photo** while OCR is pending and keeps **Last photo OCR confidence: 87.2% — 80% required** visible after the response, including below-threshold results. This is a score for a completed trial photo, not a live camera focus score or OCR progress percentage. Missing scores display **unavailable (not 0%)** and do not bypass the 80% gate. The reading indicator is indeterminate until the response arrives. No extra paid OCR call is needed for the readout.
+The scanner shows the latest completed OCR confidence alongside the captured shot number. Missing scores display **unavailable (not 0%)**. A score is not a live focus reading and no longer gates capture. No extra paid OCR call is needed for the readout.
 
-Google Document AI provides confidence on token layouts. BookLens derives a character-weighted mean of the token scores, reported on a 0-100 scale, **only when scored token anchors cover all recognized text**. Missing/invalid scores or incomplete coverage leave confidence unavailable and the shot is not accepted. Paragraph confidence keeps Google's original 0-1 scale and is not used for acceptance. See the [Document AI layout/token reference](https://docs.cloud.google.com/document-ai/docs/reference/rest/v1/Document#Layout).
+Google Document AI provides confidence on token layouts. BookLens derives a character-weighted mean of the token scores, reported on a 0-100 scale, **only when scored token anchors cover all recognized text**. Missing/invalid scores or incomplete coverage leave confidence unavailable without removing the queued photo. Paragraph confidence keeps Google's original 0-1 scale and is not used for acceptance. See the [Document AI layout/token reference](https://docs.cloud.google.com/document-ai/docs/reference/rest/v1/Document#Layout).
 
-Tesseract already reports its OCR confidence on a 0-100 scale. Both engines use the same inclusive 80-point acceptance threshold; blank text cannot pass. These scores estimate the engine's certainty, not a guarantee that 80% of the words are correct, and scores from different engines are not perfectly calibrated against each other. AI cleanup cannot raise the acceptance score: it runs only after acceptance. The accepted OCR result is reused for cleanup/review, avoiding a second OCR call.
+Tesseract already reports confidence on a 0-100 scale. Google and Tesseract scores are informational: they estimate engine certainty, not the percentage of correct words. AI cleanup does not change raw confidence. OCR runs once per queued photo and its result is reused for cleanup/review.
 
-Pause, Stop, Done and navigation abort the confidence check and discard late results. Previously accepted pages and their background cleanup remain intact. No additional environment variable is required; the threshold is in `frontend/src/services/ocrAcceptance.ts`.
+Pause, Stop and navigation stop new captures while queued OCR/cleanup continue. Done stops the camera and drains all queued work. Reset clears the session and cancels its jobs.
 
 The updated workflow passes 186 automated tests (143 frontend, 43 backend), lint, typechecks, production builds and Docker. A real browser run with generated pages confirms successful Tesseract OCR before green acceptance, continued cleanup, duplicate exclusion and resource cleanup. Real Google confidence extraction is covered by mocked token/layout tests; physical phone and configured Google quality checks remain manual.
 
@@ -103,4 +103,8 @@ The earlier checkbox disappeared when the camera started, and Review had no acti
 
 In Review, choose **Clean remaining pages with AI** for included pages that have not been cleaned, or **Clean up with AI** on one page. These actions use existing raw OCR, require no image upload or OCR retry, and work even if automatic cleanup was disabled or previously failed. Requests run one at a time; a backend failure stops the bulk operation. Raw OCR and manual edits are preserved. If you edited a page yourself, choose **Use cleaned text** to replace those edits after reviewing the result. Excluded duplicates are skipped unless restored.
 
-Known failures now show safe guidance for rejected keys, inaccessible/missing models, invalid model settings, exhausted API quota/credits and rate limits. Check the visible status and error before changing Render settings. Keep `OPENAI_API_KEY` and `OPENAI_PROOFREAD_MODEL` only on the backend; no extra variables or credentials belong in Vercel. The automatic confidence threshold is now 80% for both manual and automatic capture.
+Known failures now show safe guidance for rejected keys, inaccessible/missing models, invalid model settings, exhausted API quota/credits and rate limits. Check the visible status and error before changing Render settings. Keep `OPENAI_API_KEY` and `OPENAI_PROOFREAD_MODEL` only on the backend; no extra variables or credentials belong in Vercel. Automatic and manual capture now queue OCR without a minimum confidence requirement.
+
+## Current background-capture verification
+
+All 199 tests (153 frontend, 46 backend), lint, typechecks, production builds, formatting and Docker passed. A browser run with real OpenCV/Tesseract and generated borderless pages rejected clipped line ends, then averaged 2.65 seconds between photos while the cloud request was deliberately delayed by 12 seconds. Three photos queued before OCR finished. Duplicate exclusion, AI cleanup feedback, review and camera/worker cleanup passed. This is a desktop synthetic-camera measurement; physical phone timing and framing need testing. No paid provider calls were made.

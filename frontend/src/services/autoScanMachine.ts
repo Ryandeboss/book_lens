@@ -168,7 +168,14 @@ export class AutoScanMachine {
       return false;
     }
     const geometry =
+      // Existing geometry/focus checks remain; only obvious edge truncation is new.
       d.corners ?? (d.source === 'guide' ? d.captureCorners : d.textBody);
+    if (d.hint === 'clippedText') {
+      this.state = 'detected';
+      this.message = 'Move back a little — text is cut off at the camera edge.';
+      this.resetStability();
+      return false;
+    }
     if (!geometry) {
       this.state = 'searching';
       this.message =

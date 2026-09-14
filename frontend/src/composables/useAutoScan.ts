@@ -4,10 +4,6 @@ import { AutoScanMachine } from '../services/autoScanMachine';
 import { usePageDetection } from './usePageDetection';
 import { useOcrQueue } from './useOcrQueue';
 import { useScanStore } from '../stores/scan';
-import {
-  meetsOcrConfidence,
-  minimumOcrConfidence,
-} from '../services/ocrAcceptance';
 import { guideCorners, guideForFrame } from '../services/scannerGeometry';
 import {
   captureStill,
@@ -22,16 +18,14 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
     session = useScanStore();
   const machine = reactive(new AutoScanMachine());
   const displayMessage = ref(machine.message);
-  const lastConfidence = shallowRef<{ value: number | null } | null>(null);
   const confidenceLabel = computed(() => {
-    if (queue.checking.value)
-      return 'OCR confidence: measuring this photo... The percentage appears when OCR finishes.';
-    if (!lastConfidence.value)
-      return 'OCR confidence: waiting for a clear photo.';
-    const value = lastConfidence.value.value;
-    return value === null
-      ? 'Last photo OCR confidence: unavailable (not 0%).'
-      : `Last photo OCR confidence: ${(Math.floor(value * 10) / 10).toFixed(1)}% — ${minimumOcrConfidence}% required.`;
+    const page = [...session.pages]
+      .reverse()
+      .find((p) => p.rawText || p.status === 'ready');
+    if (!page)
+      return 'OCR runs in the background. Green means your photo is saved to the queue.';
+    const value = page.confidence;
+    return `Shot ${page.capturePosition ?? page.pageNumber} OCR confidence: ${typeof value === 'number' && Number.isFinite(value) ? `${(Math.floor(value * 10) / 10).toFixed(1)}%` : 'unavailable (not 0%)'}.`;
   });
   let guidanceTimer: ReturnType<typeof setTimeout> | undefined;
   watch(
@@ -265,46 +259,10 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
       if (current !== generation || disposed) return;
       duplicateMatch.value = result.duplicateMatch ?? null;
       duplicateScore.value = result.duplicateMatch?.gray ?? 1;
-      machine.message = 'Checking OCR confidence... Keep this page in view.';
-      const inspected = await queue.inspect(result.blob);
-      if (!valid()) return;
-      const confidence = inspected.result?.confidence;
-      lastConfidence.value = {
-        value:
-          typeof confidence === 'number' &&
-          Number.isFinite(confidence) &&
-          confidence >= 0 &&
-          confidence <= 100
-            ? confidence
-            : null,
-      };
-      if (!meetsOcrConfidence(inspected.result)) {
-        const score =
-          typeof confidence === 'number' &&
-          Number.isFinite(confidence) &&
-          confidence >= 0 &&
-          confidence <= 100
-            ? !inspected.result?.rawText.trim()
-              ? 'No text was recognized.'
-              : `OCR confidence ${(Math.floor(confidence * 10) / 10).toFixed(1)}% is below ${minimumOcrConfidence}%.`
-            : inspected.result
-              ? 'OCR returned no usable confidence score. This does not mean the photo scored 0%.'
-              : 'OCR could not read this photo, so no confidence score is available.';
-        // Do not silently repeat paid OCR on an unchanged rejected page.
-        pause(
-          `${score} Shot not saved. ${
-            lastConfidence.value.value === null
-              ? 'Tap Resume to retry. If this repeats, check that the latest backend is deployed.'
-              : 'Improve focus or lighting, then tap Resume.'
-          }`,
-        );
-        return;
-      }
       const id = queue.enqueue(
         result.blob,
         result.fingerprint,
         result.visualFingerprint,
-        inspected,
       );
       if (!id) {
         if (!finishing.value)
@@ -322,7 +280,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
         };
         machine.savedShot(
           performance.now(),
-          `\u2713 Shot ${session.pages.find((p) => p.id === id)!.capturePosition} saved — ${inspected.result.confidence!.toFixed(1)}% OCR confidence — turn the page`,
+          `\u2713 Shot ${session.pages.find((p) => p.id === id)!.capturePosition} saved — OCR queued — turn the page`,
         );
         clearTimeout(feedbackTimer);
         feedbackTimer = setTimeout(

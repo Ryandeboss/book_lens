@@ -52,7 +52,8 @@ export interface Detection {
   textBody?: Quad | null;
   confidence?: number;
   approximate?: boolean;
-  hint?: 'moveCloser' | 'fitPage' | 'centerOnePage' | 'textRequired';
+  hint?:
+    'moveCloser' | 'fitPage' | 'centerOnePage' | 'textRequired' | 'clippedText';
 }
 export type AutoScanState =
   | 'searching'

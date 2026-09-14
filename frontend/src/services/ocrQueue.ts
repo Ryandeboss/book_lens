@@ -70,6 +70,21 @@ export function createOcrQueue(
     try {
       if (session.pages.some((p) => p.id === job.id)) {
         session.setProcessing(job.id);
+        if (!job.result && engine.inspect) {
+          const raw = await engine.inspect(job.blob, job.id);
+          if (
+            current !== generation ||
+            !session.pages.some((p) => p.id === job.id)
+          )
+            return;
+          if (!raw) {
+            session.failPage(job.id, 'OCR failed. Retry or rescan this page.');
+            retainRetry(job.id, job.blob);
+            return;
+          }
+          job.result = raw;
+          session.recordOcr(job.id, raw);
+        }
         const duplicate = session.pages.find((p) => p.id === job.id);
         const result = job.result
           ? duplicate?.duplicateOf && !duplicate.keepDuplicate

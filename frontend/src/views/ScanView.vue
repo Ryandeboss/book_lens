@@ -17,7 +17,6 @@ import { useOcrQueue } from '../composables/useOcrQueue';
 import { useScanStore } from '../stores/scan';
 import { scannerDebug } from '../config/scanner';
 import AiCleanupOptions from '../components/scan/AiCleanupOptions.vue';
-import { minimumOcrConfidence } from '../services/ocrAcceptance';
 const OcrComparison =
   import.meta.env.DEV && scannerDebug
     ? defineAsyncComponent(() => import('../components/scan/OcrComparison.vue'))
@@ -83,10 +82,9 @@ watch(isActive, (value) => {
       <p class="eyebrow">01 / SCAN</p>
       <h1>Turn pages. Keep the words.</h1>
       <p>
-        Hold a page still and in focus. Keep it in view while OCR checks the
-        trial photo. A green flash confirms it reached at least
-        {{ minimumOcrConfidence }}% OCR confidence and was saved. Then you have
-        two seconds to turn the page. AI cleanup continues in the background.
+        Hold the page still and in focus with the text visible from end to end.
+        Green confirms the photo is saved to the queue. Turn the page during the
+        two-second pause; OCR and AI cleanup continue in the background.
       </p>
       <p class="scan-hint">
         With cleanup enabled, OCR text is sent to OpenAI. You can review the
@@ -161,8 +159,8 @@ watch(isActive, (value) => {
         v-if="machine.state === 'searching' || machine.state === 'detected'"
         class="scan-hint"
       >
-        Show one page and hold briefly. Saving requires at least
-        {{ minimumOcrConfidence }}% OCR confidence.
+        Keep the text inside the camera view and hold briefly. You can turn the
+        page as soon as it flashes green.
       </p>
       <p class="counts">
         {{ session.pages.length }} shots saved · {{ processed }} processed<span

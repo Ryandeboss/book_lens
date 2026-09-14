@@ -20,7 +20,11 @@ import {
 } from './scannerGeometry';
 import { FrameMotion } from './frameMotion';
 import { visualSignature, findRecentDuplicate } from './pageFingerprint';
-import { estimateTextBody, canCaptureTextBody } from './textBody';
+import {
+  estimateTextBody,
+  canCaptureTextBody,
+  hasClippedTextLines,
+} from './textBody';
 type OpenCv = typeof CV;
 
 function signature(cv: OpenCv, gray: CV.Mat) {
@@ -336,6 +340,44 @@ export function analyzePage(
     }
     const body = estimateTextBody(boxes);
     const textCapture = canCaptureTextBody(boxes, body);
+    // Check the actual camera edges, not the inner guide or estimated page crop.
+    const frameBinary = own(new cv.Mat()),
+      frameLines = own(new cv.Mat()),
+      frameContours = own(new cv.MatVector()),
+      frameHierarchy = own(new cv.Mat());
+    cv.adaptiveThreshold(
+      gray,
+      frameBinary,
+      255,
+      cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+      cv.THRESH_BINARY_INV,
+      config.textThresholdBlock,
+      config.textThresholdOffset,
+    );
+    cv.morphologyEx(frameBinary, frameLines, cv.MORPH_CLOSE, kernel);
+    cv.findContours(
+      frameLines,
+      frameContours,
+      frameHierarchy,
+      cv.RETR_LIST,
+      cv.CHAIN_APPROX_SIMPLE,
+    );
+    const frameBoxes = [];
+    for (let i = 0; i < frameContours.size(); i++) {
+      const line = frameContours.get(i);
+      try {
+        const r = cv.boundingRect(line);
+        frameBoxes.push({
+          x: r.x / src.cols,
+          y: r.y / src.rows,
+          width: r.width / src.cols,
+          height: r.height / src.rows,
+        });
+      } finally {
+        line.delete();
+      }
+    }
+    const clippedText = hasClippedTextLines(frameBoxes, src.cols, src.rows);
     const m = inverse.data64F;
     const textBody: Quad | null = body
       ? (guideCorners(body).map((p) => {
@@ -350,9 +392,10 @@ export function analyzePage(
       : null;
     // Photo-first capture: focus, light and motion decide readiness. Text boxes
     // are optional overlay hints; OCR starts only after a photo has been saved.
-    const aligned = boundaryAligned || (!ambiguous && !wide);
+    const aligned = !clippedText && (boundaryAligned || (!ambiguous && !wide));
     return {
       ...base,
+      ...(clippedText ? { hint: 'clippedText' as const } : {}),
       textBody,
       aligned,
       alignment: aligned ? 1 : base.alignment,
