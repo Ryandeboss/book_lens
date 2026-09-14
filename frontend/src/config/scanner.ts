@@ -12,9 +12,6 @@ export const scannerConfig = {
   minPageArea: 0.12, // Fraction of camera frame.
   minAspect: 0.4,
   edgeMargin: 0.012, // Reject clipped corners.
-  fullPageEdgeContrast: 10, // Paper must be brighter than the background along each edge.
-  fullPageEdgeSupport: 0.5,
-  fullPageProbeDistance: 0.01, // At analysis resolution, sample on both sides of the boundary.
   alignmentTolerance: 0.16, // Relative to guide dimensions.
   minGuideCoverage: 0.58,
   stabilityMs: 300,

@@ -59,27 +59,7 @@ Vercel serves the compiled frontend; Render runs the compiled backend. Their ind
 
 Vite environment values are build-time public settings. Express environment values are runtime server settings. The Docker frontend intentionally builds with `/api`; native development uses localhost:3000/api; Vercel will use the actual Render origin.
 
-## Fast capture (default)
-
-```text
-Camera -> motion + whole-page edges + focus/light -> brief steady hold
-       -> focused video photo -> exact-photo page/focus/light recheck
-       -> compressed FULL frame -> bounded queue + green confirmation
-       -> two-second cooldown -> next photo (no OCR wait)
-
-Queue -> POST /api/ocr -> Express/Render -> Google Document AI
-      -> Tesseract fallback on cloud failure
-      -> raw text + confidence + duplicate comparison in capture order
-      -> optional OpenAI cleanup -> Review / TXT
-```
-
-`scan.captureMode` defaults to `fast`; the UI allows switching to `verified` with the camera stopped. `fullPage.ts` augments contour/geometry evidence with samples across each of the four paper edges. Guide-only geometry cannot qualify in fast mode. The exact captured video image is checked again, avoiding stale preview boundaries. The crop sent to `preparePage` covers the entire frame so a mistaken estimated polygon cannot discard visible text. The existing high-quality image compression/resolution limits remain. This heuristic needs paper/background contrast and is not a semantic guarantee of page completeness.
-
-Fast mode reserves the capture UUID and position at queuing and does not invoke `queue.inspect` in the foreground. The queue invokes the engine's recognition-only stage in the background, records raw OCR and detects duplicates before cleanup, then finishes the page. A low/missing confidence result stays in Review with a warning. The queue's existing concurrency, count/byte backpressure, cancellation, failure isolation and retry memory limits remain. Green confirms the queued photo; Done waits for both OCR and cleanup. Capture targets roughly three seconds after warm-up, independent of provider latency until backpressure applies. See [fast capture and rollback](fast-capture.md).
-
-## Verified capture and shared scanner machinery
-
-The previous workflow remains available as **Verify OCR before saving**. The following confidence-gated sequence describes that mode; shared camera, queue and cleanup protections also apply to fast capture.
+## Continuous scanning and cloud OCR
 
 ```text
 CameraPreview -> OpenCV motion/page/light/focus checks -> stable trial photo
@@ -154,7 +134,7 @@ Express uses a route/controller/service boundary with Zod UUID and 1?20000-chara
 
 The store preserves `rawText`, `correctedText`, `editedText` and cleanup status. Initially the editor uses corrected text when available; Review can restore the raw version. Only edited text from included pages goes to TXT. No page images are sent to OpenAI and no OpenAI key reaches Vite. See [setup, costs and privacy](photo-flow-and-cleanup.md).
 
-## 80% pre-acceptance OCR gate (verified mode only)
+## 80% pre-acceptance OCR gate
 
 `queue.inspect()` runs the primary/fallback OCR without reserving a page or starting AI cleanup. `useAutoScan` awaits the result while the shutter is busy. `meetsOcrConfidence` accepts only finite 0-100 scores >=80 with nonblank text. Rejection releases the temporary candidate and pauses with guidance, avoiding repeated paid calls until Resume. The inspected UUID/result pass into `enqueue`; `refine` applies cleanup to that result without re-reading the image. Manual capture uses the same gate. Trial inspection has its own AbortController; canceling it does not terminate accepted-page cleanup. Done/Stop/Pause/navigation reject stale candidate results.
 

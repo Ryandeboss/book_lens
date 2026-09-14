@@ -103,7 +103,6 @@ beforeEach(async () => {
     drawImage,
   } as unknown as CanvasRenderingContext2D);
   const pinia = createPinia();
-  useScanStore(pinia).captureMode = 'verified';
   router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -156,63 +155,6 @@ it('keeps the AI option visible with the camera running and shows the 80% requir
   expect(wrapper.find('.cleanup-options input').exists()).toBe(true);
   await ready();
   expect(wrapper.find('.cleanup-options input').exists()).toBe(true);
-});
-it('fast mode queues three whole-frame photos at roughly three-second intervals without waiting for OCR', async () => {
-  useScanStore().captureMode = 'fast';
-  vision.analyze.mockResolvedValue({
-    ...page(),
-    source: 'page',
-    fullPage: true,
-  });
-  engine.recognize.mockReturnValue(new Promise(() => {}));
-  await ready();
-  await advance(600);
-  expect(useScanStore().pages).toHaveLength(1);
-  expect(wrapper.text()).toContain('OCR queued');
-  expect(wrapper.find('.accepted-region').exists()).toBe(true);
-  expect(vision.process.mock.calls[0]![1]).toEqual([
-    { x: 0, y: 0 },
-    { x: 1, y: 0 },
-    { x: 1, y: 1 },
-    { x: 0, y: 1 },
-  ]);
-  await advance(3000);
-  expect(useScanStore().pages).toHaveLength(2);
-  await advance(3000);
-  expect(useScanStore().pages).toHaveLength(3);
-  expect(engine.recognize).toHaveBeenCalledOnce();
-  expect(useScanStore().pages.map((p) => p.capturePosition)).toEqual([1, 2, 3]);
-  expect(wrapper.get('select').attributes('disabled')).toBeDefined();
-});
-it('fast mode rejects guide-only or clipped-page detection, including manual capture', async () => {
-  useScanStore().captureMode = 'fast';
-  vision.analyze.mockResolvedValue({
-    ...page(),
-    source: 'guide',
-    fullPage: false,
-  });
-  await ready();
-  await advance(3000);
-  expect(wrapper.text()).toContain('Show all four page edges');
-  expect(useScanStore().pages).toHaveLength(0);
-  await button('Manual Capture').trigger('click');
-  await flushPromises();
-  expect(useScanStore().pages).toHaveLength(0);
-  expect(vision.process).not.toHaveBeenCalled();
-  expect(engine.recognize).not.toHaveBeenCalled();
-});
-it('fast mode rechecks the exact captured photo before queuing', async () => {
-  useScanStore().captureMode = 'fast';
-  vision.analyze.mockImplementation(async (_frame, still) => ({
-    ...page(),
-    source: 'page',
-    fullPage: !still,
-  }));
-  await ready();
-  await advance(1500);
-  expect(vision.analyze.mock.calls.some((call) => call[1] === true)).toBe(true);
-  expect(useScanStore().pages).toHaveLength(0);
-  expect(engine.recognize).not.toHaveBeenCalled();
 });
 it('waits for OCR confidence before saving or showing green, then reuses the OCR', async () => {
   let complete!: (result: OcrResult) => void;

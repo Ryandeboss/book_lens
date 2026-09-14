@@ -1,7 +1,5 @@
 # Photo capture and optional OCR cleanup
 
-**Fast capture is now the default.** It queues a whole-frame photo before OCR and flags low-confidence text afterward. The 80% pre-save workflow described below remains available through **Verify OCR before saving**. See [the fast-capture guide](fast-capture.md) for the new flow, timing, whole-page checks and the saved rollback version. AI cleanup configuration is unchanged.
-
 ## What the user sees
 
 1. Center a page and hold it still with sufficient light and focus.

@@ -82,17 +82,11 @@ watch(isActive, (value) => {
     <template v-if="!isActive && !finishing">
       <p class="eyebrow">01 / SCAN</p>
       <h1>Turn pages. Keep the words.</h1>
-      <p v-if="session.captureMode === 'verified'">
+      <p>
         Hold a page still and in focus. Keep it in view while OCR checks the
         trial photo. A green flash confirms it reached at least
         {{ minimumOcrConfidence }}% OCR confidence and was saved. Then you have
         two seconds to turn the page. AI cleanup continues in the background.
-      </p>
-      <p v-else>
-        Show one whole page with all four edges visible, then hold steady. Green
-        means the photo is saved to the queue: turn the page during the
-        two-second pause. OCR and AI cleanup continue in the background. Aim for
-        about three seconds per photo once the camera is ready.
       </p>
       <p class="scan-hint">
         With cleanup enabled, OCR text is sent to OpenAI. You can review the
@@ -119,20 +113,6 @@ watch(isActive, (value) => {
         >Review Document</AppButton
       >
     </template>
-    <label class="capture-mode">
-      Capture mode
-      <select v-model="session.captureMode" :disabled="isActive || finishing">
-        <option value="fast">Fast capture — OCR in background</option>
-        <option value="verified">
-          Verify OCR before saving — previous workflow
-        </option>
-      </select>
-    </label>
-    <p v-if="session.captureMode === 'fast'" class="scan-hint">
-      Keep the entire page inside the camera preview with space around its
-      edges. A contrasting background helps. The full frame is sent for OCR;
-      check low-confidence pages in Review. Stop Camera to switch modes.
-    </p>
     <AiCleanupOptions />
     <OcrComparison v-if="scannerDebug && OcrComparison && !isActive" />
     <p v-if="error" class="scan-error" role="alert">{{ error }}</p>
@@ -153,10 +133,8 @@ watch(isActive, (value) => {
               ?.corners ?? null
           "
           :text-body="
-            session.captureMode === 'fast'
-              ? null
-              : ((machine.state === 'captured' ? acceptedRegion : detection)
-                  ?.textBody ?? null)
+            (machine.state === 'captured' ? acceptedRegion : detection)
+              ?.textBody ?? null
           "
         />
       </CameraPreview>
@@ -183,14 +161,8 @@ watch(isActive, (value) => {
         v-if="machine.state === 'searching' || machine.state === 'detected'"
         class="scan-hint"
       >
-        <template v-if="session.captureMode === 'verified'"
-          >Show one page and hold briefly. Saving requires at least
-          {{ minimumOcrConfidence }}% OCR confidence.
-        </template>
-        <template v-else
-          >Show the whole page, hold still, and wait for green before
-          turning.</template
-        >
+        Show one page and hold briefly. Saving requires at least
+        {{ minimumOcrConfidence }}% OCR confidence.
       </p>
       <p class="counts">
         {{ session.pages.length }} shots saved · {{ processed }} processed<span
@@ -335,16 +307,6 @@ h1 {
   text-align: center;
   font-size: 0.85rem;
   margin: 8px;
-}
-.capture-mode {
-  display: grid;
-  gap: 8px;
-  margin: 16px 0;
-}
-.capture-mode select {
-  font: inherit;
-  min-height: 44px;
-  width: 100%;
 }
 .primary-actions,
 .secondary-actions {
