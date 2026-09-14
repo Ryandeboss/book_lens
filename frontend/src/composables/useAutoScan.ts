@@ -9,6 +9,7 @@ import {
   minimumOcrConfidence,
 } from '../services/ocrAcceptance';
 import { guideCorners, guideForFrame } from '../services/scannerGeometry';
+import { fullPageReady, requireFullPage } from '../services/fullPage';
 import {
   captureStill,
   decodeStill,
@@ -24,6 +25,15 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
   const displayMessage = ref(machine.message);
   const lastConfidence = shallowRef<{ value: number | null } | null>(null);
   const confidenceLabel = computed(() => {
+    if (session.captureMode === 'fast') {
+      const last = [...session.pages]
+        .reverse()
+        .find((p) => p.rawText || p.status === 'ready' || p.status === 'error');
+      if (!last)
+        return 'OCR runs in the background. Green means the photo is queued.';
+      const value = last.confidence;
+      return `Shot ${last.capturePosition ?? last.pageNumber} OCR: ${typeof value === 'number' && Number.isFinite(value) ? `${(Math.floor(value * 10) / 10).toFixed(1)}%` : 'confidence unavailable'}${typeof value !== 'number' || value < minimumOcrConfidence ? ' — check this page in Review.' : ''}`;
+    }
     if (queue.checking.value)
       return 'OCR confidence: measuring this photo... The percentage appears when OCR finishes.';
     if (!lastConfidence.value)
@@ -188,6 +198,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
     )
       return;
     busy.value = true;
+    const fast = session.captureMode === 'fast';
     const current = generation;
     machine.state = 'capturing';
     machine.message = 'Taking photo... Keep still';
@@ -205,7 +216,8 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
         current === generation && !disposed && !finishing.value;
       const video = getVideo();
       if (!video) throw new Error('Camera stopped');
-      let still = await captureStill(video, valid);
+      // Use the already-focused video frame in fast mode: no native shutter wait.
+      let still = await captureStill(video, valid, !fast);
       if (!valid()) return;
       let capturedCanvas: HTMLCanvasElement;
       try {
@@ -223,7 +235,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
         captureSource.value = still.source;
         // Re-detect native still geometry in its own orientation/field of view.
         // The full-resolution warp uses normalized coordinates from this SAME image.
-        if (still.source === 'photo') {
+        if (still.source === 'photo' || fast) {
           const scale = Math.min(
             1,
             config.analysisMaxEdge /
@@ -241,6 +253,20 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
           }
           captureDetection = await vision.analyze(previewFrame, true);
           if (!valid()) return;
+          if (
+            fast &&
+            (!fullPageReady(captureDetection) ||
+              captureDetection.sharpness < config.minSharpness ||
+              captureDetection.brightness < config.minBrightness)
+          ) {
+            detection.value = requireFullPage(captureDetection);
+            machine.state = 'detected';
+            machine.message = fullPageReady(captureDetection)
+              ? 'Hold steady with more light while the camera focuses.'
+              : 'Show all four page edges. Move back or use a darker background.';
+            machine.resetStability();
+            return;
+          }
           if (!manual && !captureDetection.aligned) {
             machine.state = 'detected';
             machine.message = 'Hold steady while the camera focuses';
@@ -258,17 +284,22 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
       }
       const result = await vision.process(
         fullFrame,
-        captureDetection?.captureCorners ?? captureDetection?.corners ?? null,
+        fast
+          ? guideCorners({ x: 0, y: 0, width: 1, height: 1 })
+          : (captureDetection?.captureCorners ??
+              captureDetection?.corners ??
+              null),
         [], // Compare OCR text later; never silently discard a saved shot.
         captureDetection?.textBody ?? null,
       );
       if (current !== generation || disposed) return;
       duplicateMatch.value = result.duplicateMatch ?? null;
       duplicateScore.value = result.duplicateMatch?.gray ?? 1;
-      machine.message = 'Checking OCR confidence... Keep this page in view.';
-      const inspected = await queue.inspect(result.blob);
+      if (!fast)
+        machine.message = 'Checking OCR confidence... Keep this page in view.';
+      const inspected = fast ? undefined : await queue.inspect(result.blob);
       if (!valid()) return;
-      const confidence = inspected.result?.confidence;
+      const confidence = inspected?.result?.confidence;
       lastConfidence.value = {
         value:
           typeof confidence === 'number' &&
@@ -278,7 +309,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
             ? confidence
             : null,
       };
-      if (!meetsOcrConfidence(inspected.result)) {
+      if (inspected && !meetsOcrConfidence(inspected.result)) {
         const score =
           typeof confidence === 'number' &&
           Number.isFinite(confidence) &&
@@ -313,16 +344,20 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
       }
       if (!finishing.value) {
         acceptedRegion.value = {
-          corners: detection.value?.textBody
-            ? null
-            : (detection.value?.captureCorners ??
-              detection.value?.corners ??
-              guideCorners(guideForFrame(width.value, height.value))),
-          textBody: detection.value?.textBody ?? null,
+          corners: fast
+            ? captureDetection!.corners
+            : detection.value?.textBody
+              ? null
+              : (detection.value?.captureCorners ??
+                detection.value?.corners ??
+                guideCorners(guideForFrame(width.value, height.value))),
+          textBody: fast ? null : (detection.value?.textBody ?? null),
         };
         machine.savedShot(
           performance.now(),
-          `\u2713 Shot ${session.pages.find((p) => p.id === id)!.capturePosition} saved — ${inspected.result.confidence!.toFixed(1)}% OCR confidence — turn the page`,
+          fast
+            ? `\u2713 Shot ${session.pages.find((p) => p.id === id)!.capturePosition} saved — OCR queued — turn the page`
+            : `\u2713 Shot ${session.pages.find((p) => p.id === id)!.capturePosition} saved — ${inspected!.result!.confidence!.toFixed(1)}% OCR confidence — turn the page`,
         );
         clearTimeout(feedbackTimer);
         feedbackTimer = setTimeout(
@@ -375,6 +410,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
       if (current !== generation || disposed || paused.value || finishing.value)
         return;
       analysisDuration.value = performance.now() - start;
+      if (session.captureMode === 'fast') result = requireFullPage(result);
       detection.value = result;
       const shouldCapture = machine.sample(
         result,

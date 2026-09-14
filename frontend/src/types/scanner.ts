@@ -34,6 +34,7 @@ export interface DuplicateMatch {
   featureScore: number | null;
 }
 export interface Detection {
+  fullPage?: boolean;
   gate?: 'motion' | 'page' | 'lighting' | 'sharpness' | 'text' | 'ready';
   motionDifference?: number;
   coverage?: number;
@@ -52,7 +53,8 @@ export interface Detection {
   textBody?: Quad | null;
   confidence?: number;
   approximate?: boolean;
-  hint?: 'moveCloser' | 'fitPage' | 'centerOnePage' | 'textRequired';
+  hint?:
+    'moveCloser' | 'fitPage' | 'centerOnePage' | 'textRequired' | 'wholePage';
 }
 export type AutoScanState =
   | 'searching'

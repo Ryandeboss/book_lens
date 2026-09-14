@@ -16,6 +16,45 @@ function setup() {
   return { engine, store, queue };
 }
 describe('bounded background OCR queue', () => {
+  it('publishes raw background OCR before cleanup, skips duplicate cleanup and keeps low confidence for review', async () => {
+    const rawText = Array.from({ length: 45 }, (_, i) => `word${i}`).join(' ');
+    let finish!: (r: OcrResult) => void;
+    const engine = {
+      inspect: vi.fn(async () => ({ rawText, confidence: 72 })),
+      refine: vi.fn(
+        () =>
+          new Promise<OcrResult>((resolve) => {
+            finish = resolve;
+          }),
+      ),
+      recognize: vi.fn(),
+      terminate: vi.fn(async () => {}),
+    };
+    const store = useScanStore(),
+      queue = createOcrQueue(store, engine);
+    const first = queue.enqueue(new Blob(['one']), [])!;
+    queue.enqueue(new Blob(['two']), []);
+    await flushPromises();
+    expect(store.pages[0]).toMatchObject({
+      id: first,
+      rawText,
+      confidence: 72,
+      status: 'processing',
+    });
+    finish({
+      rawText,
+      confidence: 72,
+      correctedText: rawText,
+      cleanupStatus: 'applied',
+    });
+    await queue.waitUntilIdle();
+    expect(store.pages[1]?.duplicateOf).toBe(first);
+    expect(engine.inspect).toHaveBeenCalledTimes(2);
+    expect(engine.refine).toHaveBeenCalledOnce();
+    expect(engine.recognize).not.toHaveBeenCalled();
+    expect(store.pages.map((p) => p.status)).toEqual(['ready', 'ready']);
+    expect(queue.pendingBytes.value).toBe(0);
+  });
   it('assigns capture order immediately, processes sequentially, and Done waits for every job', async () => {
     const { engine, store, queue } = setup();
     const resolve: ((r: OcrResult | null) => void)[] = [];

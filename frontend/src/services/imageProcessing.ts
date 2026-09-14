@@ -19,6 +19,7 @@ import {
   cornerDistance,
 } from './scannerGeometry';
 import { FrameMotion } from './frameMotion';
+import { hasPaperBoundary } from './fullPage';
 import { visualSignature, findRecentDuplicate } from './pageFingerprint';
 import { estimateTextBody, canCaptureTextBody } from './textBody';
 type OpenCv = typeof CV;
@@ -260,6 +261,10 @@ export function analyzePage(
     const brightness = cv.mean(roi)[0]!;
     const base: Detection = {
       source: boundaryAligned ? 'page' : 'guide',
+      fullPage:
+        boundaryAligned &&
+        !!best &&
+        hasPaperBoundary(gray.data, src.cols, src.rows, best),
       corners: boundaryAligned ? best : null,
       captureCorners: boundaryAligned
         ? best!

@@ -8,6 +8,10 @@ import { downloadText } from '../services/downloadText';
 import { useOcrQueue } from '../composables/useOcrQueue';
 import AiCleanupOptions from '../components/scan/AiCleanupOptions.vue';
 import { useReviewCleanup } from '../composables/useReviewCleanup';
+import {
+  meetsOcrConfidence,
+  minimumOcrConfidence,
+} from '../services/ocrAcceptance';
 
 const session = useScanStore();
 const router = useRouter();
@@ -132,6 +136,11 @@ function download() {
         Very little text was detected. Review, edit, or delete this page.
       </p>
       <template v-if="page.status === 'ready'">
+        <p v-if="!meetsOcrConfidence(page)" class="scan-hint" role="status">
+          Check this page: OCR confidence is below {{ minimumOcrConfidence }}%
+          or unavailable. Review the text for omissions, or rescan the whole
+          page. This page is still included in TXT.
+        </p>
         <button
           type="button"
           class="secondary-button"

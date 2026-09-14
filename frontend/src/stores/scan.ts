@@ -8,6 +8,7 @@ import type { ScannedPage, OcrResult } from '../types/Page';
 export const useScanStore = defineStore('scan', () => {
   const pages = ref<ScannedPage[]>([]);
   const cleanupEnabled = ref(true);
+  const captureMode = ref<'fast' | 'verified'>('fast');
   let captureSequence = 0;
   const includedPages = computed(() =>
     pages.value.filter((p) => !p.duplicateOf || p.keepDuplicate),
@@ -164,6 +165,7 @@ export const useScanStore = defineStore('scan', () => {
   return {
     pages,
     cleanupEnabled,
+    captureMode,
     includedPages,
     duplicatePages,
     keepDuplicate,

@@ -23,9 +23,11 @@ A mobile-first web application for turning printed pages into editable text. Boo
 
 ## Scan a book
 
-Run `npm.cmd run dev` and open http://localhost:5173/scan. Start Camera and center one page. BookLens checks motion, lighting and focus, then takes a temporary trial photo after a brief steady hold. **A shot is saved and flashes green only after OCR reports at least 80% confidence.** Keep the page in view during the OCR check. Low or missing confidence pauses scanning without adding a page; adjust focus/lighting and tap Resume. Turn the page during the two-second pause; the camera then looks for another clear, steady shot. Printed-text detection is optional and no clear margin is required.
+Run `npm.cmd run dev` and open http://localhost:5173/scan. **Fast capture** is the default. Show one entire page with all four paper edges visible against a contrasting background. After a brief steady, focused hold, BookLens checks the captured frame and queues the full photograph. Green means the photo is queued, not that OCR has finished. Turn the page during the two-second pause. The target is about three seconds per photo after warm-up; phone speed, autofocus and queue capacity affect timing.
 
-A detected page is perspective-corrected, including headings and footnotes. Without reliable page corners, the full visible photograph is retained. Native still-photo capture is preferred where supported; otherwise the actual video resolution is used. Images are compressed at high quality. Up to 30 pending photos / 48 MiB can queue while optional AI cleanup runs independently of capture. The OCR confidence check itself must finish before each shot is accepted. At the memory limit, scanning waits for capacity automatically. Photos exist temporarily in this tab, not in a persistent gallery; keep it open.
+Fast capture uses the focused video frame, rechecks its page edges/focus/light, and preserves the full camera frame so an estimated crop cannot remove headings, footnotes or page numbers. Google OCR and optional AI cleanup run in the bounded background queue. Low or missing OCR confidence is flagged afterward in Review rather than blocking the next photo. Up to 30 pending photos / 48 MiB can queue; at the memory limit scanning waits for capacity. Photos live temporarily in this tab, not a persistent gallery; keep it open until Done finishes processing.
+
+Select **Verify OCR before saving — previous workflow** with the camera stopped to use the earlier behavior: native photo/perspective correction where supported, the guide fallback, and an 80% OCR confidence gate before green. This mode trades capture speed for verification. The exact previous code is also saved as GitHub tag `scanner-before-fast-capture-2026-09-14` (`4ba71bd`). See [fast capture, limitations and rollback](docs/fast-capture.md).
 
 Holding the same page can save it again after the pause. Once OCR finishes, a conservative text comparison sets likely duplicates aside with their original shot numbers. Review lets you inspect and restore them. Short pages and ambiguous matches stay in the document to avoid losing content.
 
@@ -33,9 +35,9 @@ See the [automatic capture report and phone tuning checklist](docs/automatic-cap
 
 If page analysis fails, BookLens tries a compatible pixel-transfer path once. Resume rebuilds page detection and restarts a paused preview. Loading/initialization failures now provide specific recovery guidance. After a scanner update is deployed, reload the site once to load the new code.
 
-Pause stops automatic acceptance. Resume restarts detection; Manual Capture bypasses the visual stability gates but still requires 80% OCR confidence and refreshes detection before photographing the visible preview. Manual captures also enter the OCR queue and are checked for duplicate text afterward. Stop Camera releases the camera; accepted pages remain available in Review. Backgrounding pauses scanning and requires an explicit Resume.
+Pause stops automatic acceptance. Resume restarts detection. Manual Capture bypasses the steady-hold timing, but fast mode still checks the captured photo's whole-page edges, focus and lighting; verified mode still requires 80% OCR confidence. Stop Camera releases the camera and allows switching modes; queued pages remain available. Backgrounding pauses scanning and requires Resume.
 
-Done stops the camera and new captures, discards any unaccepted trial photo, waits for accepted-page cleanup, then opens Review. Edit or delete pages and Download TXT. Raw OCR and AI-corrected text stay separate from editable text. Use original OCR / Use cleaned text switches representations without losing either. TXT uses edited text in capture order, excluding set-aside duplicates, separated by three newlines. Failed pages offer Retry while their temporary image remains available, or instructions to delete/rescan. Nearly blank OCR results are marked for review. Start New Scan asks before clearing the document.
+Done stops the camera and new captures, discards any unqueued trial photo, waits for queued OCR and cleanup, then opens Review. Edit or delete pages and Download TXT. Raw OCR and AI-corrected text stay separate from editable text. Use original OCR / Use cleaned text switches representations without losing either. TXT uses edited text in capture order, excluding set-aside duplicates. Failed pages offer Retry while their temporary image remains available, or instructions to delete/rescan. Low-confidence and nearly blank results are marked for review. Start New Scan asks before clearing the document.
 
 Sessions stay in this tab: download before refreshing or closing. Text, original OCR paragraphs/languages, provider, status, and small fingerprints live in Pinia. OpenCV runs in a browser worker. Corrected page images are temporarily uploaded to Render, then Google Document AI. BookLens does not persist them. Tesseract is the fallback, not the preferred primary engine. Finishing the background job releases the queued image. Pending and retry images have separate count and byte limits.
 
@@ -64,10 +66,11 @@ The public OCR endpoint has per-process concurrency and request-rate limits, but
 ## Architecture
 
 ```text
-Camera -> clear/still page -> corrected trial photo -> Google OCR (Tesseract fallback)
-       -> OCR confidence >=80% -> accept shot + green -> two-second pause
-       -> low/missing confidence -> not saved; adjust camera and Resume
-Accepted OCR -> background AI cleanup -> duplicate review -> TXT
+Fast: Camera -> whole page + focus/light/stability -> full-frame photo
+             -> queue + green -> two-second pause -> next photo
+Background: Google OCR (Tesseract fallback) -> raw text/confidence/duplicates
+            -> optional AI cleanup -> Review -> TXT
+Verified mode: trial photo -> OCR >=80% -> queue + green -> two-second pause
 ```
 
 Vue uses Composition API single-file components, Vue Router for navigation, and Pinia for the current text document. Camera capture, OpenCV processing, fallback Tesseract OCR, and TXT export run in the browser. The official Google Document AI client and Application Default Credentials exist only in the backend. Express keeps HTTP handling separate from future business logic and persistence. In Docker, Nginx serves the production frontend and proxies API requests. See [architecture details](docs/architecture.md).

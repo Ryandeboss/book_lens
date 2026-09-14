@@ -172,9 +172,11 @@ export class AutoScanMachine {
     if (!geometry) {
       this.state = 'searching';
       this.message =
-        d.hint === 'centerOnePage'
-          ? 'Center one page in the frame'
-          : 'Center a page and hold steady';
+        d.hint === 'wholePage'
+          ? 'Show all four page edges. Move back or use a darker background.'
+          : d.hint === 'centerOnePage'
+            ? 'Center one page in the frame'
+            : 'Center a page and hold steady';
       this.resetStability();
       return false;
     }
@@ -193,11 +195,13 @@ export class AutoScanMachine {
     if (!d.aligned) {
       this.state = 'detected';
       this.message =
-        d.hint === 'moveCloser'
-          ? 'Move closer to the page'
-          : d.hint === 'textRequired'
-            ? 'Point the camera at printed text'
-            : 'Fit the page inside the frame';
+        d.hint === 'wholePage'
+          ? 'Show all four page edges. Move back or use a darker background.'
+          : d.hint === 'moveCloser'
+            ? 'Move closer to the page'
+            : d.hint === 'textRequired'
+              ? 'Point the camera at printed text'
+              : 'Fit the page inside the frame';
       this.resetStability();
       return false;
     }
