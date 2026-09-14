@@ -77,44 +77,60 @@ watch(isActive, (value) => {
 });
 </script>
 <template>
-  <section class="continuous-scanner">
+  <section
+    class="continuous-scanner"
+    :class="{ 'is-scanning': isActive && !finishing }"
+  >
     <template v-if="!isActive && !finishing">
-      <p class="eyebrow">01 / SCAN</p>
+      <p class="eyebrow">Your scanning studio</p>
       <h1>Turn pages. Keep the words.</h1>
-      <p>
-        Hold the page still and in focus with the text visible from end to end.
-        Green confirms the photo is saved to the queue. Turn the page during the
-        two-second pause; OCR and AI cleanup continue in the background.
+      <p class="scan-intro">
+        Point your camera at a page. Hold steady, wait for green, and turn. OCR
+        and AI cleanup continue in the background.
       </p>
-      <p class="scan-hint">
-        With cleanup enabled, OCR text is sent to OpenAI. You can review the
-        original and undo corrections. Photos stay only in temporary memory;
-        keep this tab open until processing finishes.
-      </p>
-      <p class="scan-hint">
-        Page images are sent to our server and Google for OCR, without BookLens
-        saving the images. Browser OCR is the fallback. Download your text
-        before refreshing or closing.
-      </p>
-      <AppButton :disabled="isStarting" @click="start">{{
-        isStarting ? 'Starting camera...' : 'Start Camera'
-      }}</AppButton>
-      <button
-        v-if="isStarting"
-        class="secondary-button"
-        type="button"
-        @click="stop"
-      >
-        Cancel camera startup
-      </button>
-      <AppButton v-if="session.pages.length" to="/review"
-        >Review Document</AppButton
-      >
+      <div class="scan-steps" aria-label="Scanning steps">
+        <span><b>01</b> Hold steady</span><span><b>02</b> Wait for green</span
+        ><span><b>03</b> Turn the page</span>
+      </div>
+      <details class="privacy-details">
+        <summary>How your pages are processed</summary>
+        <p class="scan-hint">
+          With cleanup enabled, OCR text is sent to OpenAI. You can review the
+          original and undo corrections. Photos stay only in temporary memory;
+          keep this tab open until processing finishes.
+        </p>
+        <p class="scan-hint">
+          Page images are sent to our server and Google for OCR, without
+          BookLens saving the images. Browser OCR is the fallback. Download your
+          text before refreshing or closing.
+        </p>
+      </details>
+      <div class="scan-actions start-actions">
+        <AppButton :disabled="isStarting" @click="start">{{
+          isStarting ? 'Starting camera...' : 'Start Camera'
+        }}</AppButton>
+        <button
+          v-if="isStarting"
+          class="secondary-button"
+          type="button"
+          @click="stop"
+        >
+          Cancel camera startup
+        </button>
+        <AppButton v-if="session.pages.length" to="/review"
+          >Review Document</AppButton
+        >
+      </div>
     </template>
-    <AiCleanupOptions />
     <OcrComparison v-if="scannerDebug && OcrComparison && !isActive" />
     <p v-if="error" class="scan-error" role="alert">{{ error }}</p>
     <div v-if="isActive && !finishing" class="scanner-live">
+      <div class="camera-toolbar">
+        <span class="live-label"
+          ><i aria-hidden="true"></i
+          >{{ paused ? 'Paused' : 'Automatic capture' }}</span
+        ><span class="camera-wordmark">BOOKLENS</span>
+      </div>
       <CameraPreview
         ref="preview"
         :stream="stream"
@@ -139,9 +155,6 @@ watch(isActive, (value) => {
       <p class="scanner-status" role="status" :data-state="machine.state">
         {{ scanner.displayMessage.value }}
       </p>
-      <p class="scan-hint ocr-confidence" role="status">
-        {{ scanner.confidenceLabel.value }}
-      </p>
       <progress
         v-if="machine.state === 'stabilizing' || machine.state === 'capturing'"
         class="capture-progress"
@@ -155,13 +168,6 @@ watch(isActive, (value) => {
             : 'Automatic capture progress'
         "
       />
-      <p
-        v-if="machine.state === 'searching' || machine.state === 'detected'"
-        class="scan-hint"
-      >
-        Keep the text inside the camera view and hold briefly. You can turn the
-        page as soon as it flashes green.
-      </p>
       <p class="counts">
         {{ session.pages.length }} shots saved · {{ processed }} processed<span
           v-if="failed"
@@ -196,10 +202,18 @@ watch(isActive, (value) => {
           Stop Camera
         </button>
       </div>
-      <p v-if="pending" class="scan-hint">
-        {{ pending }} {{ pending === 1 ? 'page' : 'pages' }} processing in the
-        background.
-      </p>
+      <details class="scan-details">
+        <summary>
+          Scan details<span v-if="pending"> · {{ pending }} processing</span>
+        </summary>
+        <p class="scan-hint ocr-confidence" role="status">
+          {{ scanner.confidenceLabel.value }}
+        </p>
+        <p v-if="pending" class="scan-hint">
+          {{ pending }} {{ pending === 1 ? 'page' : 'pages' }} processing in the
+          background.
+        </p>
+      </details>
       <details v-if="scannerDebug" class="scanner-debug">
         <summary>Scanner debug</summary>
         <pre>{{
@@ -242,7 +256,10 @@ watch(isActive, (value) => {
         }}</pre>
       </details>
     </div>
-    <div v-if="finishing" class="document-card" aria-busy="true">
+    <AiCleanupOptions v-if="!finishing" :compact="isActive" />
+    <div v-if="finishing" class="document-card finishing-card" aria-busy="true">
+      <div class="finishing-icon" aria-hidden="true">✓</div>
+      <p class="eyebrow">One last moment</p>
       <h2>Photos saved. Finishing your text...</h2>
       <p role="status">
         {{ processed }} / {{ session.pages.length }} pages processed<span
@@ -265,75 +282,188 @@ watch(isActive, (value) => {
 </template>
 <style scoped>
 .continuous-scanner {
-  max-width: 760px;
-  margin: -40px auto 0;
+  max-width: 720px;
+  margin: 16px auto 0;
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
+.continuous-scanner.is-scanning {
+  max-width: 620px;
+  margin-top: 0;
+}
 h1 {
-  font-size: clamp(2rem, 5vw, 3.2rem);
+  font-size: clamp(2.4rem, 5vw, 3.5rem);
+  max-width: 600px;
+}
+.scan-intro {
+  color: var(--muted);
+  max-width: 520px;
+  font-size: 0.94rem;
+}
+.scan-steps {
+  display: flex;
+  gap: 22px;
+  flex-wrap: wrap;
+  margin: 28px 0 18px;
+  font-size: 0.77rem;
+  color: var(--muted);
+}
+.scan-steps b {
+  display: inline-grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  border: 1px solid #d3ded2;
+  margin-right: 6px;
+  color: #4d7159;
+  font-size: 0.6rem;
+}
+.privacy-details {
+  margin: 0 0 20px;
+  color: var(--muted);
+}
+.privacy-details summary {
+  font-size: 0.73rem;
+}
+.start-actions {
+  margin-bottom: 28px;
 }
 .scanner-live {
-  background: #14201b;
-  color: #f9fff9;
-  border-radius: 14px;
-  padding: 8px 8px 16px;
+  background: #14251e;
+  color: #edf4ed;
+  border: 1px solid #2e4537;
+  border-radius: 18px;
+  padding: 0 14px 4px;
+  overflow: hidden;
+  box-shadow: 0 16px 50px #203e3310;
+}
+.camera-toolbar {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.live-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #bfd4c4;
+  font-size: 0.67rem;
+  font-weight: 500;
+}
+.live-label i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #8cbd9c;
+}
+.camera-wordmark {
+  font-size: 0.5rem;
+  letter-spacing: 0.17em;
+  color: #8da896;
+}
+.scanner-live :deep(.camera-preview) {
+  border-radius: 8px;
+  background: #0c1712;
 }
 .scanner-live :deep(video) {
-  height: 62svh;
-  min-height: 200px;
+  height: clamp(240px, calc(100svh - 430px), 560px);
+  min-height: 0;
 }
 .scanner-status {
-  font-size: 1.05rem;
+  font-size: 0.86rem;
+  font-weight: 550;
   text-align: center;
-  min-height: 2em;
-  margin: 12px 4px;
-}
-.scanner-status[data-state='duplicate'] {
-  color: #ffd16a;
+  min-height: 2.8em;
+  display: grid;
+  align-items: center;
+  margin: 12px 0 2px;
+  line-height: 1.45;
 }
 .scanner-status[data-state='captured'] {
-  color: #59f59d;
+  color: #a1efb5;
+}
+.scanner-status[data-state='error'] {
+  color: #ffd0bc;
 }
 .capture-progress {
   display: block;
-  width: min(70%, 280px);
-  height: 5px;
-  margin: 0 auto 12px;
-  accent-color: #87ddff;
+  width: min(65%, 220px);
+  height: 3px;
+  margin: 4px auto 8px;
+  accent-color: #8fceaa;
+}
+.capture-progress::-webkit-progress-bar {
+  background: #314c3b;
+}
+.capture-progress::-webkit-progress-value {
+  background: #8fceaa;
 }
 .counts {
+  font-size: 0.68rem;
   text-align: center;
-  font-size: 0.85rem;
-  margin: 8px;
+  color: #a4bdad;
+  margin: 6px 0 14px;
+  font-variant-numeric: tabular-nums;
 }
-.primary-actions,
-.secondary-actions {
-  display: flex;
-  gap: 12px;
-  justify-content: center;
-  flex-wrap: wrap;
+.primary-actions {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 10px;
+}
+.primary-actions .app-button {
+  background: #dcf0db;
+  color: #213f2b;
+  min-height: 46px;
+  padding: 10px;
+  font-size: 0.86rem;
+}
+.primary-actions .app-button:hover {
+  background: #c7e6c8;
 }
 .scanner-secondary {
+  min-height: 44px;
+  border: 1px solid #47614f;
+  color: #d0e0d2;
+  border-radius: 10px;
   background: transparent;
-  color: inherit;
-  border: 1px solid #7f9e8d;
-  border-radius: 8px;
+  padding: 8px 14px;
   font: inherit;
-  min-height: 48px;
-  padding: 10px 16px;
+  font-size: 0.8rem;
   cursor: pointer;
 }
-.secondary-actions {
-  margin-top: 12px;
-  font-size: 0.8rem;
+.scanner-secondary:hover:not(:disabled) {
+  background: #294433;
 }
 .scanner-secondary:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
+.secondary-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 5px;
+}
+.secondary-actions .scanner-secondary {
+  border: 0;
+  color: #a9c0b0;
+  font-size: 0.69rem;
+  min-height: 40px;
+}
+.scan-details {
+  border-top: 1px solid #304838;
+  padding: 0 4px;
+  color: #9eb8a6;
+}
+.scan-details summary {
+  min-height: 32px;
+  font-size: 0.64rem;
+  padding: 6px 0;
+}
 .scanner-live .scan-hint {
-  color: #c1d3c8;
-  text-align: center;
+  color: #bdd0c0;
+  font-size: 0.72rem;
 }
 .scanner-debug {
   padding: 12px;
@@ -343,9 +473,48 @@ pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.finishing-card {
+  text-align: center;
+  padding: 48px 28px;
+}
+.finishing-card .eyebrow {
+  justify-content: center;
+}
+.finishing-card h2 {
+  font-family: Georgia, serif;
+  font-weight: 400;
+  font-size: 2rem;
+}
+.finishing-card > p {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+.finishing-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: #edf4e8;
+  color: #497659;
+  font-size: 1.6rem;
+}
+@media (max-width: 640px) {
+  .scan-steps {
+    gap: 12px;
+    font-size: 0.68rem;
+  }
+  .continuous-scanner:not(.is-scanning) {
+    padding: 8px;
+  }
+  .scanner-live {
+    border-radius: 14px;
+    padding-inline: 10px;
+  }
+}
 @media (orientation: landscape) and (max-height: 600px) {
   .scanner-live :deep(video) {
-    height: 70svh;
+    height: 64svh;
   }
 }
 </style>

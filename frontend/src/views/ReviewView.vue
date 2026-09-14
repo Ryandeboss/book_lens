@@ -50,26 +50,30 @@ function download() {
 </script>
 <template>
   <section class="document-review">
-    <p class="eyebrow">02 / REVIEW</p>
+    <p class="eyebrow">Your document studio</p>
     <h1>Your document</h1>
-    <AiCleanupOptions />
-    <button
-      class="secondary-button"
-      type="button"
-      :disabled="cleanup.busy.value || !cleanup.remaining.value.length"
-      @click="cleanup.cleanRemaining"
-    >
-      {{
-        cleanup.busy.value
-          ? 'Cleaning text...'
-          : 'Clean remaining pages with AI'
-      }}
-    </button>
-    <p class="scan-hint">
-      Cleanup uses existing OCR, without scanning again. Your manual edits stay
-      in place; use the cleaned version below when ready.
-    </p>
-    <p>
+    <p class="review-intro">A final look before the words are yours to keep.</p>
+    <details class="review-tools">
+      <summary>AI cleanup &amp; settings</summary>
+      <AiCleanupOptions />
+      <button
+        class="secondary-button"
+        type="button"
+        :disabled="cleanup.busy.value || !cleanup.remaining.value.length"
+        @click="cleanup.cleanRemaining"
+      >
+        {{
+          cleanup.busy.value
+            ? 'Cleaning text...'
+            : 'Clean remaining pages with AI'
+        }}
+      </button>
+      <p class="scan-hint">
+        Cleanup uses existing OCR, without scanning again. Your manual edits
+        stay in place; use the cleaned version below when ready.
+      </p>
+    </details>
+    <p class="document-summary">
       {{ session.pages.length }}
       {{ session.pages.length === 1 ? 'page' : 'pages' }} · Edits stay in this
       tab. Download before refreshing or closing.
@@ -259,8 +263,61 @@ function download() {
 <style scoped>
 .document-review {
   max-width: 760px;
-  margin: -32px auto 0;
+  margin: 0 auto;
   padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.review-intro {
+  color: var(--muted);
+  margin-top: -4px;
+  font-size: 0.9rem;
+}
+.review-tools {
+  margin: 22px 0 12px;
+  padding: 4px 18px;
+  background: #edf2eb;
+  border-radius: 10px;
+}
+.review-tools > summary {
+  color: #4d7058;
+  font-weight: 550;
+  font-size: 0.79rem;
+}
+.document-summary {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.document-card > .scan-hint:first-child {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.6rem;
+  margin: 0 0 18px;
+  color: #7c9583;
+}
+.document-card > .secondary-button:last-child {
+  color: #946459;
+  background: transparent;
+  border-color: transparent;
+  font-size: 0.73rem;
+}
+.document-card > details {
+  border-top: 1px solid var(--line);
+  margin-top: 20px;
+}
+.duplicate-card {
+  border-top: 1px solid var(--line);
+  margin-top: 18px;
+  padding-top: 14px;
+}
+.duplicate-card p {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.document-card pre {
+  padding: 18px;
+  background: #f7f9f5;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  line-height: 1.8;
 }
 .document-review h1 {
   font-size: clamp(2rem, 5vw, 3.2rem);
