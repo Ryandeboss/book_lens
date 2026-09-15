@@ -6,6 +6,12 @@ export const scannerConfig = {
   motionDifference: 0.035, // Exposure-centered mean absolute difference / 255.
   stillTimeoutMs: 1800, // One native shutter attempt, then video fallback.
   pageOppositeEdgeRatio: 0.45, // Reject extreme perspective; allow book curl.
+  angleMinOppositeRatio: 0.72,
+  angleMaxCornerCosine: 0.36, // About 21 degrees of projected corner skew.
+  angleMinShapeRatio: 0.45, // Severe foreshortening of a typical book page.
+  angleMinTextRows: 6,
+  angleMinTextScaleRatio: 0.7,
+  angleMaxTextDivergence: 9, // Degrees between near/far printed lines, not camera roll.
   statusHoldMs: 220, // Debounce ordinary guidance, never success/errors.
   guideAspect: 0.72, // Portrait page guide, not an enforced page aspect ratio.
   guideCoverage: 0.84,

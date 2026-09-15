@@ -18,6 +18,7 @@ import {
   cornerDistance,
 } from './scannerGeometry';
 import { FrameMotion } from './frameMotion';
+import { pageIsOblique, textIsOblique, type TextLineShape } from './pageAngle';
 import { visualSignature, findRecentDuplicate } from './pageFingerprint';
 import {
   estimateTextBody,
@@ -163,10 +164,9 @@ export function analyzePage(
             y: approx.data32S[j * 2 + 1]! / src.rows,
           })),
         );
-        const size = outputSize(p, src.cols, src.rows),
-          aspect = size.width / size.height;
-        if (aspect > config.singlePageMaxAspect || aspect < config.minAspect)
-          continue;
+        // Keep foreshortened candidates for angle rejection; discarding them
+        // here would let the guide/text fallback bypass the angle check.
+        if (polygonArea(p) > 0.95) continue; // The camera frame is not a page edge.
         const score = polygonArea(p) * (relaxed ? 0.95 : 1);
         if (score > bestScore) {
           best = p;
@@ -182,6 +182,7 @@ export function analyzePage(
     // Page edges are useful for measuring focus, but margins and position
     // inside the guide never gate capture. Borderless pages use text presence.
     const bounds = best ?? guideCorners(guide);
+    const obliquePage = best ? pageIsOblique(best, src.cols, src.rows) : false;
     const fullFrame = guideCorners({ x: 0, y: 0, width: 1, height: 1 });
     const size = outputSize(bounds, src.cols, src.rows);
     const scale = Math.min(
@@ -296,6 +297,7 @@ export function analyzePage(
       cv.CHAIN_APPROX_SIMPLE,
     );
     const boxes = [];
+    const textShapes: TextLineShape[] = [];
     for (let i = 0; i < lines.size(); i++) {
       const line = lines.get(i);
       try {
@@ -307,6 +309,16 @@ export function analyzePage(
           !hasPrintedStrokes(binary.data, w, r)
         )
           continue;
+        if (!best) {
+          const shape = cv.minAreaRect(line);
+          const horizontal = shape.size.width >= shape.size.height;
+          textShapes.push({
+            x: shape.center.x,
+            y: shape.center.y,
+            thickness: Math.min(shape.size.width, shape.size.height),
+            angle: shape.angle + (horizontal ? 0 : 90),
+          });
+        }
         boxes.push({
           x: r.x / w,
           y: r.y / h,
@@ -334,7 +346,8 @@ export function analyzePage(
     // An outline alone can be a leg, furniture or another focused object.
     // Require printed-line evidence already computed in this preview, without
     // adding an OCR call, extra hold time or any margin/line-end requirement.
-    const aligned = textCapture;
+    const oblique = obliquePage || (!best && textIsOblique(textShapes));
+    const aligned = textCapture && !oblique;
     return {
       ...base,
       textBody,
@@ -343,7 +356,7 @@ export function analyzePage(
       textPresent: textCapture,
       content: signature(cv, roi),
       confidence: aligned ? 1 : 0,
-      gate: aligned ? 'ready' : 'text',
+      gate: oblique ? 'angle' : aligned ? 'ready' : 'text',
     };
   } finally {
     owned.reverse().forEach((m) => m.delete());

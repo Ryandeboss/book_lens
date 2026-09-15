@@ -232,7 +232,11 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
           if (!valid()) return;
           if (!manual && !captureDetection.aligned) {
             machine.state = 'detected';
-            machine.message = 'Hold steady while the camera focuses';
+            machine.message =
+              captureDetection.gate === 'angle'
+                ? 'Hold the phone parallel to the page'
+                : 'Hold steady while the camera focuses';
+            displayMessage.value = machine.message;
             machine.resetStability();
             return;
           }

@@ -6,6 +6,7 @@ const borderless = process.argv.includes('--borderless');
 const slowOcr = process.argv.includes('--slow-ocr');
 const clippedText = process.argv.includes('--clipped-text');
 const nonPage = process.argv.includes('--non-page');
+const oblique = process.argv.includes('--oblique');
 const origin = process.argv[2] || 'http://localhost:5173';
 const debugOrigin = process.env.BROWSER_DEBUG_URL || 'http://localhost:9225';
 const tabs = await (await fetch(debugOrigin + '/json')).json();
@@ -73,12 +74,12 @@ try {
   });
   await call('Page.navigate', { url: origin + '/scan' });
   await wait("document.body.innerText.includes('Start Camera')");
-  await evaluate(`window.noOffscreen=${noOffscreen};window.brokenWorkerCanvas=${brokenWorkerCanvas};window.nativePhoto=${nativePhoto};window.testNonPage=${nonPage};
+  await evaluate(`window.noOffscreen=${noOffscreen};window.brokenWorkerCanvas=${brokenWorkerCanvas};window.nativePhoto=${nativePhoto};window.testNonPage=${nonPage};window.testOblique=${oblique};
     if(window.noOffscreen)window.OffscreenCanvas=undefined;
     if(window.nativePhoto)window.ImageCapture=class{async takePhoto(){const c=document.createElement('canvas');c.width=1600;c.height=1600;const q=c.getContext('2d');q.fillStyle='#202520';q.fillRect(0,0,1600,1600);q.drawImage(window.cameraCanvas,200,0,1200,1600);return new Promise(r=>c.toBlob(r,'image/jpeg',.96));}};
   `);
   await evaluate(`window.testBorderless=${borderless};window.testPage=1;window.moving=true;window.workers=[];window.stops=0;window.analysisTimes=[];window.analysisStarts=[];const NativeWorker=window.Worker;window.Worker=class extends NativeWorker{constructor(...args){let boot;if((window.noOffscreen||window.brokenWorkerCanvas) && String(args[0]).includes('imageProcessing')){boot=URL.createObjectURL(new Blob([(window.brokenWorkerCanvas?'self.OffscreenCanvas=class{getContext(){return null;}};':'self.OffscreenCanvas=undefined;')+'const queued=[];self.onmessage=e=>queued.push(e);await import('+JSON.stringify(String(args[0]))+');for(const e of queued)self.onmessage(e);'],{type:'text/javascript'}));args[0]=boot;}super(...args);this.boot=boot;this.jobs=new Map();this.addEventListener('message',e=>{const start=this.jobs.get(e.data.id);if(start!==undefined){window.analysisTimes.push(performance.now()-start);this.jobs.delete(e.data.id);}});window.workers.push(this)}postMessage(message,...rest){if(message.type==='analyze'){const now=performance.now();this.jobs.set(message.id,now);window.analysisStarts.push(now);}return super.postMessage(message,...rest);}terminate(){if(this.boot)URL.revokeObjectURL(this.boot);window.stops++;return super.terminate()}};
- navigator.mediaDevices.getUserMedia=async()=>{const c=document.createElement('canvas');c.width=900;c.height=1200;window.cameraCanvas=c;const ctx=c.getContext('2d');setInterval(()=>{ctx.fillStyle=window.testBorderless?'#fffef2':'#202520';ctx.fillRect(0,0,900,1200);if(window.testNonPage){ctx.fillStyle='#e4ccb5';ctx.fillRect(130,120,640,960);ctx.strokeStyle='#392f2a';ctx.lineWidth=5;for(let y=200;y<1000;y+=45){ctx.beginPath();ctx.moveTo(180,y);ctx.lineTo(720,y);ctx.stroke();}return;}if(!window.testPage)return;const offset=window.moving?Math.sin(Date.now()/90)*45:0;ctx.save();ctx.translate(offset-(window.testClippedText?180:0),0);if(window.testPage===2)ctx.transform(1,.055,-.075,1,45,-25);ctx.fillStyle='#fffef2';ctx.fillRect(130,120,640,960);ctx.fillStyle='#111';ctx.font='bold 30px Georgia';ctx.fillText('BOOKLENS PAGE '+window.testPage,165,210);ctx.font='26px Georgia';for(let i=0;i<19;i++){const text=window.testPage===1?'The morning light filled the room.':'A different chapter begins today.';ctx.fillText(text,165,270+i*38)}ctx.restore();},50);const stream=c.captureStream(20);window.track=stream.getVideoTracks()[0];return stream;}`);
+ navigator.mediaDevices.getUserMedia=async()=>{const c=document.createElement('canvas');c.width=900;c.height=1200;window.cameraCanvas=c;const ctx=c.getContext('2d');setInterval(()=>{ctx.fillStyle=window.testBorderless?'#fffef2':'#202520';ctx.fillRect(0,0,900,1200);if(window.testNonPage){ctx.fillStyle='#e4ccb5';ctx.fillRect(130,120,640,960);ctx.strokeStyle='#392f2a';ctx.lineWidth=5;for(let y=200;y<1000;y+=45){ctx.beginPath();ctx.moveTo(180,y);ctx.lineTo(720,y);ctx.stroke();}return;}if(!window.testPage)return;const offset=window.moving?Math.sin(Date.now()/90)*45:0;ctx.save();if(window.testOblique){ctx.transform(.5,0,.45,1,-30,0);}ctx.translate(offset-(window.testClippedText?180:0),0);if(window.testPage===2)ctx.transform(1,.055,-.075,1,45,-25);ctx.fillStyle='#fffef2';ctx.fillRect(130,120,640,960);ctx.fillStyle='#111';ctx.font='bold 30px Georgia';ctx.fillText('BOOKLENS PAGE '+window.testPage,165,210);ctx.font='26px Georgia';for(let i=0;i<19;i++){const text=window.testPage===1?'The morning light filled the room.':'A different chapter begins today.';ctx.fillText(text,165,270+i*38)}ctx.restore();},50);const stream=c.captureStream(20);window.track=stream.getVideoTracks()[0];return stream;}`);
   await evaluate(
     `window.ocrUploads=[];const originalFetch=window.fetch;window.fetch=async(...args)=>{const [url,options]=args;if(String(url).endsWith('/proofread')){const status=await originalFetch(String(url)+'/status');if(!status.ok||(await status.json()).configured!==false)throw new Error('Smoke test requires unconfigured cleanup; no paid request');}if(String(url).endsWith('/ocr')&&options?.body instanceof FormData){const capability=await originalFetch(String(url)+'/status');if(!capability.ok||(await capability.json()).googleDocumentAiConfigured!==false)throw new Error('Smoke check requires unconfigured cloud OCR; no image uploaded');const image=options.body.get('image');const info={type:image.type,bytes:image.size,pageId:options.body.get('pageId')};window.ocrUploads.push(info);const response=await originalFetch(...args);info.status=response.status;return response;}return originalFetch(...args);};`,
   );
@@ -120,6 +121,17 @@ try {
   if (!(await evaluate("!!document.querySelector('.cleanup-options input')")))
     throw new Error('AI cleanup option hidden while scanning');
   await evaluate(`window.moving=false;window.testClippedText=${clippedText};`);
+  if (oblique) {
+    await sleep(2200);
+    if (
+      !(await evaluate(
+        "document.querySelector('.counts').textContent.includes('0 shots saved') && document.querySelector('[data-state]').textContent.includes('parallel to the page') && window.ocrUploads.length===0",
+      ))
+    )
+      throw new Error('Oblique page was captured or angle guidance missing');
+    console.log('PASS oblique page rejected before upload');
+    await evaluate('window.testOblique=false');
+  }
   await wait("!!document.querySelector('.scan-sweep')");
   if (
     !(await evaluate(

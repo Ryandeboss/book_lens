@@ -159,6 +159,36 @@ it('keeps the AI option visible and explains background OCR', async () => {
   await ready();
   expect(wrapper.find('.cleanup-options input').exists()).toBe(true);
 });
+it('waits on an oblique page without reserving or uploading a photo, then captures when straightened', async () => {
+  vision.analyze.mockResolvedValue({
+    ...page(),
+    aligned: false,
+    gate: 'angle',
+    textPresent: true,
+  });
+  await ready();
+  await advance(2000);
+  expect(wrapper.text()).toContain('Hold the phone parallel to the page');
+  expect(useScanStore().pages).toHaveLength(0);
+  expect(vision.process).not.toHaveBeenCalled();
+  expect(engine.recognize).not.toHaveBeenCalled();
+  vision.analyze.mockResolvedValue(page());
+  await advance(650);
+  expect(useScanStore().pages[0]?.capturePosition).toBe(1);
+});
+
+it('rechecks the native still angle before queuing a photo', async () => {
+  stillMode.source = 'photo';
+  vision.analyze.mockImplementation(async (_frame: unknown, still?: boolean) =>
+    still ? { ...page(), aligned: false, gate: 'angle' } : page(),
+  );
+  await ready();
+  await advance(700);
+  expect(useScanStore().pages).toHaveLength(0);
+  expect(vision.process).not.toHaveBeenCalled();
+  expect(wrapper.text()).toContain('Hold the phone parallel to the page');
+});
+
 it('saves and flashes green before OCR finishes, then queues the next photo', async () => {
   let complete!: (result: OcrResult) => void;
   engine.recognize.mockReturnValue(

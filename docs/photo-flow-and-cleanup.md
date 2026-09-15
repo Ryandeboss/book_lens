@@ -12,6 +12,12 @@ Low or unavailable OCR confidence does not pause capture or remove a queued phot
 
 The local text check reuses the thresholded preview and reads three short pixel rows per candidate line to distinguish letter-like strokes from solid edges/stripes. It adds no OCR request or hold time. It is a visual heuristic, not a guarantee that every scene is a book: convincing text-like textures can still fool it. Very sparse title/illustration pages may need Manual Capture. Existing saved pages are not deleted automatically.
 
+## Page angle
+
+Automatic capture asks **Hold the phone parallel to the page** when the preview shows strong perspective distortion. The check compares original page-edge lengths, corner skew and severe foreshortening before rectification. Without paper edges, it compares printed-line angles and gradual text-size changes across separate rows. It uses existing preview contours; there is no extra image upload, OCR call or longer hold. Native stills are checked too. The fixed full-frame animation, two-second cooldown and background pipeline stay the same.
+
+This is a visual heuristic, not a calibrated physical-angle measurement: book dimensions and camera intrinsics are unknown. Uniformly compressed text with no visible page boundary may provide too little evidence; unusual page shapes, fonts or curvature can also affect detection. Mild tilt is allowed. Manual Capture remains available.
+
 ## Enable OpenAI on Render
 
 The existing Render service still uses root directory `backend`. Google OCR setup stays unchanged.

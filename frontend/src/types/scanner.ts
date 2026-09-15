@@ -34,7 +34,8 @@ export interface DuplicateMatch {
   featureScore: number | null;
 }
 export interface Detection {
-  gate?: 'motion' | 'page' | 'lighting' | 'sharpness' | 'text' | 'ready';
+  gate?:
+    'motion' | 'page' | 'lighting' | 'sharpness' | 'text' | 'angle' | 'ready';
   motionDifference?: number;
   coverage?: number;
   textPresent?: boolean;

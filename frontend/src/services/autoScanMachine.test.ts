@@ -21,6 +21,18 @@ function stabilize(machine: AutoScanMachine, start = 0) {
   return false;
 }
 describe('automatic scanner state machine', () => {
+  it('rejects an oblique page even when focused and restarts the existing hold when straightened', () => {
+    const machine = new AutoScanMachine();
+    machine.sample(page(), 0);
+    expect(
+      machine.sample({ ...page(), gate: 'angle', aligned: false }, 170),
+    ).toBe(false);
+    expect(machine.message).toBe('Hold the phone parallel to the page');
+    expect(machine.stableProgress).toBe(0);
+    expect(machine.sample(page(), 340)).toBe(false);
+    expect(machine.sample(page(), 510)).toBe(false);
+    expect(machine.sample(page(), 680)).toBe(true);
+  });
   it('requires actual stable geometry for the configured duration', () => {
     const machine = new AutoScanMachine();
     expect(machine.sample({ ...page(), corners: null }, 0)).toBe(false);

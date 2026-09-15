@@ -152,6 +152,12 @@ export class AutoScanMachine {
       this.state = 'waitingForPageChange';
       return false;
     }
+    if (d.gate === 'angle') {
+      this.state = 'detected';
+      this.message = 'Hold the phone parallel to the page';
+      this.resetStability();
+      return false;
+    }
     if (d.gate === 'motion') {
       this.state = 'detected';
       this.message = 'Hold steady';
