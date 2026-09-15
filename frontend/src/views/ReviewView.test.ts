@@ -143,11 +143,18 @@ it('restores a duplicate at its original position and can undo AI cleanup before
   });
   expect(wrapper.findAll('textarea')).toHaveLength(1);
   expect(wrapper.text()).toContain('Matches original shot 1');
-  const click = async (text: string) =>
-    wrapper
+  const click = async (text: string) => {
+    if (text === 'Download TXT') {
+      await wrapper
+        .get('[aria-controls="text-export-formats"]')
+        .trigger('click');
+      text = 'TXT';
+    }
+    await wrapper
       .findAll('button')
       .find((b) => b.text() === text)!
       .trigger('click');
+  };
   await click('Download TXT');
   expect(downloadText).toHaveBeenLastCalledWith('Cleaned first page');
   await click('Keep this page in document');
@@ -191,9 +198,10 @@ it('edits, exports, deletes, confirms clearing, and retains raw OCR', async () =
   await wrapper.findAll('textarea')[0]!.setValue('Edited');
   expect(store.pages[0]?.rawText).toBe('raw');
   expect(store.pages[0]?.editedText).toBe('Edited');
+  await wrapper.get('[aria-controls="text-export-formats"]').trigger('click');
   await wrapper
     .findAll('button')
-    .find((b) => b.text() === 'Download TXT')!
+    .find((b) => b.text() === 'TXT')!
     .trigger('click');
   expect(downloadText).toHaveBeenCalledWith('Edited\n\n\nsecond');
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);

@@ -1,8 +1,11 @@
 # Cleanup, Word documents and audio
 
-In Review, **Download TXT** and **Download DOCX** export the current edited text,
-in capture order. Pages set aside as duplicates are excluded from both formats
-and from audio. **Keep this page in document** includes a duplicate again in all
+In Review, **Download text** offers **TXT**, **PDF** and **DOCX** for the current edited text,
+in capture order. Pages set aside as duplicates are excluded from all text formats
+and from audio. PDF opens a local print preview: choose **Save as PDF** in the
+print dialog (disable browser headers/footers for a clean document). Unicode,
+line breaks and page boundaries are preserved; no text is uploaded. Allow
+pop-ups for BookLens if the preview is blocked. **Keep this page in document** includes a duplicate again in all
 exports. Downloads do not clear the saved draft.
 
 DOCX is a real Word document generated locally as an OOXML ZIP. It preserves
@@ -27,8 +30,8 @@ text** if manual edits were preserved.
 
 ## Create and download MP3
 
-Open **Listen to your document**, then **Create MP3**. After generation, preview
-the audio or choose **Download MP3**. The audio uses the text currently shown in
+Choose **Create audio** beside **Download text**. After generation, preview
+the audio or choose **Download audio**. The audio uses the text currently shown in
 the editors, not hidden raw OCR. Generation uses a snapshot; editing, deleting,
 restoring a duplicate, or completing more OCR cancels/discards outdated audio.
 Leaving Review or pressing **Cancel audio** also cancels it. TXT/DOCX remain
@@ -67,7 +70,7 @@ Cancellation cannot undo a charge for an upstream call already processed.
    ```
 
 4. Deploy the backend and frontend. In Review, try one short corrected page using
-   **Create MP3**, play it, and download it. For another language, configure a
+   **Create audio**, play it, and download it. For another language, configure a
    matching Google Standard voice and language code together on Render.
 
 `GET /api/speech/status` reports configuration, language and the part-size limit;
