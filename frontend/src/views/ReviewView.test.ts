@@ -15,6 +15,46 @@ import * as api from '../services/api';
 
 vi.mock('../services/downloadText', () => ({ downloadText: vi.fn() }));
 afterEach(() => vi.restoreAllMocks());
+it('clears the live scan only after Finish scan is explicitly confirmed', async () => {
+  const pinia = createPinia();
+  setActivePinia(pinia);
+  const store = useScanStore();
+  store.addPage({ rawText: 'raw', editedText: 'keep me' });
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/review', component: ReviewView },
+      { path: '/', component: { template: '<p>Home</p>' } },
+    ],
+  });
+  await router.push('/review');
+  const queue = createOcrQueue(store, {
+    recognize: vi.fn(),
+    terminate: vi.fn(async () => {}),
+  });
+  const wrapper = mount(ReviewView, {
+    global: {
+      plugins: [pinia, router],
+      provide: { [ocrQueueKey as symbol]: queue },
+    },
+  });
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+  await wrapper
+    .findAll('button')
+    .find((b) => b.text() === 'Finish scan')!
+    .trigger('click');
+  expect(store.combinedText).toBe('keep me');
+  confirm.mockReturnValue(true);
+  await wrapper
+    .findAll('button')
+    .find((b) => b.text() === 'Finish scan')!
+    .trigger('click');
+  await flushPromises();
+  expect(store.pages).toHaveLength(0);
+  expect(router.currentRoute.value.path).toBe('/');
+  wrapper.unmount();
+  await queue.dispose();
+});
 it('runs cleanup from Review, keeps raw OCR and preserves edits made during the request', async () => {
   const pinia = createPinia();
   setActivePinia(pinia);

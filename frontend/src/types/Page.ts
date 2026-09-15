@@ -24,6 +24,7 @@ export interface ScannedPage {
   duplicateScore?: number;
   keepDuplicate?: boolean;
   rawText: string;
+  ocrCompleted?: boolean;
   editedText: string;
   confidence?: number;
   ocrProvider?: OcrProvider;

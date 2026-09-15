@@ -8,11 +8,13 @@ import { downloadText } from '../services/downloadText';
 import { useOcrQueue } from '../composables/useOcrQueue';
 import AiCleanupOptions from '../components/scan/AiCleanupOptions.vue';
 import { useReviewCleanup } from '../composables/useReviewCleanup';
+import { useScanDraft } from '../composables/useScanDraft';
 
 const session = useScanStore();
 const router = useRouter();
 const queue = useOcrQueue();
 const cleanup = useReviewCleanup();
+const draft = useScanDraft();
 const exportError = ref('');
 function removePage(id: string) {
   if (window.confirm('Delete this page from your document?')) {
@@ -30,7 +32,20 @@ async function startNew() {
     return;
   await queue.reset();
   session.clearSession();
+  await draft?.flush();
   void router.push('/scan');
+}
+async function finishScan() {
+  if (
+    !window.confirm(
+      'Finish and clear this scan from this device? Download your TXT first if you want to keep it.',
+    )
+  )
+    return;
+  await queue.reset();
+  session.clearSession();
+  await draft?.flush();
+  void router.push('/');
 }
 function download() {
   if (
@@ -75,8 +90,8 @@ function download() {
     </details>
     <p class="document-summary">
       {{ session.pages.length }}
-      {{ session.pages.length === 1 ? 'page' : 'pages' }} · Edits stay in this
-      tab. Download before refreshing or closing.
+      {{ session.pages.length === 1 ? 'page' : 'pages' }} · Download TXT to keep
+      a permanent copy.
     </p>
     <p v-if="!session.pages.length">
       No pages yet. Scan a page to start your document.
@@ -257,6 +272,14 @@ function download() {
     </details>
     <button class="secondary-button" type="button" @click="startNew">
       Start New Scan
+    </button>
+    <button
+      v-if="session.pages.length"
+      class="secondary-button"
+      type="button"
+      @click="finishScan"
+    >
+      Finish scan
     </button>
   </section>
 </template>

@@ -37,6 +37,8 @@ export function createOcrQueue(
   type Job = { id: string; blob: Blob; result?: OcrResult };
   let jobs: Job[] = [];
   const retries = new Map<string, Blob>();
+  const images = new Map<string, Blob>();
+  const imageVersion = ref(0);
   const maxActive = Math.max(1, Math.min(2, Math.floor(concurrency) || 1));
   let active = 0,
     generation = 0,
@@ -84,6 +86,8 @@ export function createOcrQueue(
           }
           job.result = raw;
           session.recordOcr(job.id, raw);
+          images.delete(job.id); // Recovery can use OCR text; the image is no longer needed.
+          imageVersion.value++;
         }
         const duplicate = session.pages.find((p) => p.id === job.id);
         const result = job.result
@@ -114,6 +118,8 @@ export function createOcrQueue(
       }
     } finally {
       if (current === generation) {
+        images.delete(job.id);
+        imageVersion.value++;
         active--;
         pendingCount.value--;
         pendingBytes.value -= job.blob.size;
@@ -124,6 +130,8 @@ export function createOcrQueue(
     }
   }
   function submit(id: string, blob: Blob, result?: OcrResult) {
+    if (!result) images.set(id, blob);
+    imageVersion.value++;
     session.setQueued(id);
     jobs.push({ id, blob, result });
     pendingCount.value++;
@@ -199,6 +207,8 @@ export function createOcrQueue(
     return true;
   }
   function forget(id: string) {
+    images.delete(id);
+    imageVersion.value++;
     retries.delete(id);
     retryVersion.value++;
   }
@@ -212,6 +222,8 @@ export function createOcrQueue(
     cancelInspection();
     jobs = [];
     retries.clear();
+    images.clear();
+    imageVersion.value++;
     retryVersion.value++;
     active = 0;
     pendingCount.value = 0;
@@ -223,8 +235,41 @@ export function createOcrQueue(
     disposed = true;
     await reset();
   }
+  function draftImages(): Map<string, Blob> {
+    void imageVersion.value;
+    void retryVersion.value;
+    const needed = new Map<string, Blob>();
+    for (const page of session.pages) {
+      if (page.ocrCompleted || page.rawText || page.status === 'ready')
+        continue;
+      const blob = images.get(page.id) ?? retries.get(page.id);
+      if (blob) needed.set(page.id, blob);
+    }
+    return needed;
+  }
+  function restoreImages(saved: Map<string, Blob>) {
+    for (const page of session.pages) {
+      const blob = saved.get(page.id);
+      if (page.status === 'ready') continue;
+      if (blob && page.status === 'error') retainRetry(page.id, blob);
+      else if (
+        blob &&
+        hasCapacity.value &&
+        pendingBytes.value + blob.size <= config.maxPendingBytes
+      )
+        submit(page.id, blob);
+      else if (page.status !== 'error')
+        session.failPage(
+          page.id,
+          'This photo could not be recovered. Please rescan this page.',
+        );
+    }
+  }
   return {
     pendingCount,
+    imageVersion,
+    draftImages,
+    restoreImages,
     checking,
     inspect,
     cancelInspection,

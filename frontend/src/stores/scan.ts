@@ -8,7 +8,7 @@ import type { ScannedPage, OcrResult } from '../types/Page';
 export const useScanStore = defineStore('scan', () => {
   const pages = ref<ScannedPage[]>([]);
   const cleanupEnabled = ref(true);
-  let captureSequence = 0;
+  const captureSequence = ref(0);
   const includedPages = computed(() =>
     pages.value.filter((p) => !p.duplicateOf || p.keepDuplicate),
   );
@@ -27,7 +27,8 @@ export const useScanStore = defineStore('scan', () => {
       ...page,
       id: crypto.randomUUID(),
       pageNumber: currentPageNumber.value,
-      capturePosition: ++captureSequence,
+      capturePosition: ++captureSequence.value,
+      ocrCompleted: true,
       status: 'ready',
     });
     findDuplicates();
@@ -40,7 +41,7 @@ export const useScanStore = defineStore('scan', () => {
     const page: ScannedPage = {
       id,
       pageNumber: currentPageNumber.value,
-      capturePosition: ++captureSequence,
+      capturePosition: ++captureSequence.value,
       status: 'queued',
       rawText: '',
       editedText: '',
@@ -72,6 +73,7 @@ export const useScanStore = defineStore('scan', () => {
     const page = pages.value.find((page) => page.id === id);
     if (page) {
       page.rawText = result.rawText;
+      page.ocrCompleted = true;
       page.correctedText = result.correctedText;
       page.editedText = result.correctedText ?? result.rawText;
       page.cleanupStatus = result.cleanupStatus;
@@ -89,6 +91,7 @@ export const useScanStore = defineStore('scan', () => {
     const page = pages.value.find((p) => p.id === id);
     if (!page) return;
     page.rawText = result.rawText;
+    page.ocrCompleted = true;
     page.editedText = result.rawText;
     page.confidence = result.confidence;
     page.ocrProvider = result.ocrProvider;
@@ -159,11 +162,26 @@ export const useScanStore = defineStore('scan', () => {
   }
   function clearSession() {
     pages.value = [];
-    captureSequence = 0;
+    captureSequence.value = 0;
+  }
+  function restoreSession(
+    restored: ScannedPage[],
+    sequence: number,
+    cleanup: boolean,
+  ) {
+    pages.value = restored;
+    captureSequence.value = Math.max(
+      sequence,
+      ...restored.map((p) => p.capturePosition ?? p.pageNumber),
+      0,
+    );
+    cleanupEnabled.value = cleanup;
   }
   return {
     pages,
     cleanupEnabled,
+    captureSequence,
+    restoreSession,
     includedPages,
     duplicatePages,
     keepDuplicate,

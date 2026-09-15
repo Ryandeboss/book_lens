@@ -95,13 +95,15 @@ watch(isActive, (value) => {
         <summary>How your pages are processed</summary>
         <p class="scan-hint">
           With cleanup enabled, OCR text is sent to OpenAI. You can review the
-          original and undo corrections. Photos stay only in temporary memory;
-          keep this tab open until processing finishes.
+          original and undo corrections. Your active draft is saved on this
+          device for up to 24 hours, including photos that still need OCR or a
+          retry.
         </p>
         <p class="scan-hint">
           Page images are sent to our server and Google for OCR, without
-          BookLens saving the images. Browser OCR is the fallback. Download your
-          text before refreshing or closing.
+          server-side image storage. Browser OCR is the fallback. Completed OCR
+          images are removed from the local draft. Download TXT for a permanent
+          copy.
         </p>
       </details>
       <div class="scan-actions start-actions">

@@ -1,8 +1,22 @@
 <script setup lang="ts">
-import { RouterLink, RouterView, useRoute } from 'vue-router';
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
+import { onUnmounted, provide } from 'vue';
 import { provideOcrQueue } from './composables/useOcrQueue';
-provideOcrQueue();
+import { useScanStore } from './stores/scan';
+import { createScanDraft } from './services/scanDraft';
+import { scanDraftKey } from './composables/useScanDraft';
+import AppButton from './components/common/AppButton.vue';
+const session = useScanStore();
+const queue = provideOcrQueue();
+const draft = createScanDraft(session, queue);
+provide(scanDraftKey, draft);
+void draft.init();
+onUnmounted(draft.dispose);
 const route = useRoute();
+const router = useRouter();
+async function resumeDraft() {
+  if (await draft.resume()) await router.push('/review');
+}
 </script>
 
 <template>
@@ -31,9 +45,84 @@ const route = useRoute();
     </nav>
   </header>
   <main id="main" :class="{ 'scan-layout': route.path === '/scan' }">
-    <RouterView />
+    <p v-if="!draft.ready.value" role="status">Checking for a saved scan...</p>
+    <section
+      v-else-if="draft.previous.value"
+      class="draft-recovery"
+      aria-labelledby="resume-title"
+    >
+      <p class="eyebrow">Welcome back</p>
+      <h1 id="resume-title">Resume previous scan?</h1>
+      <p>
+        {{ draft.previous.value.pages.length }}
+        {{ draft.previous.value.pages.length === 1 ? 'page' : 'pages' }} saved
+        on this device. Last saved
+        {{ new Date(draft.previous.value.updatedAt).toLocaleString() }}.
+      </p>
+      <p>
+        Continue reviewing your text or scanning more pages. Unfinished drafts
+        expire after 24 hours without changes.
+      </p>
+      <div class="scan-actions">
+        <AppButton :disabled="draft.saving.value" @click="resumeDraft"
+          >Resume scan</AppButton
+        >
+        <button
+          class="secondary-button"
+          :disabled="draft.saving.value"
+          @click="draft.discard"
+        >
+          Discard draft
+        </button>
+      </div>
+    </section>
+    <RouterView v-else />
+    <p v-if="draft.error.value" class="draft-warning" role="alert">
+      {{ draft.error.value }}
+    </p>
+    <p
+      v-else-if="session.pages.length && !draft.previous.value"
+      class="draft-status"
+      role="status"
+    >
+      {{
+        draft.expired.value
+          ? 'Local draft expired. Download TXT or make an edit to save again.'
+          : draft.saving.value
+            ? 'Saving draft...'
+            : draft.savedAt.value
+              ? 'Draft saved on this device · available for 24 hours'
+              : 'Saving draft...'
+      }}
+    </p>
   </main>
   <footer v-if="route.path !== '/scan'">
     <span>BookLens</span><span>A little clarity for the pages you keep.</span>
   </footer>
 </template>
+<style scoped>
+.draft-recovery {
+  max-width: 640px;
+  margin: 32px auto;
+  padding: 28px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+.draft-recovery p {
+  color: var(--muted);
+}
+.draft-status {
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-align: center;
+  margin: 12px 0;
+}
+.draft-warning {
+  color: #835b24;
+  background: #fff5e5;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 0.85rem;
+}
+</style>
