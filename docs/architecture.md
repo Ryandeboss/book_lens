@@ -1,5 +1,25 @@
 # Architecture
 
+## Reviewed document exports
+
+Pinia's included pages and their edited text feed TXT, DOCX and MP3 exports in
+capture order; duplicate exclusions apply to every format. TXT and DOCX are
+generated entirely in the browser. DOCX uses a small OOXML/ZIP writer loaded on
+demand and preserves paragraphs and explicit page breaks without uploading text.
+
+MP3 generation starts only when requested in Review. The browser splits the text
+into bounded UTF-8 parts and sequentially sends them through `speech.routes.ts`
+and `speech.controller.ts` to `speech.service.ts`. That service uses Google's
+official authentication library with ADC and the v1 Text-to-Speech REST API.
+Server concurrency, rate limits, request deadlines and cancellation bound work.
+The browser validates/joins MP3 frames and offers a preview and download. Editing
+the source text or leaving Review releases the generated audio. No audio is saved
+to IndexedDB, server disk or cloud storage. See [setup and limitations](document-and-audio-export.md).
+
+The cleanup prompt identifies obvious stray letter lines and neighboring-page
+edge fragments conservatively within the existing request. Raw OCR and capture
+gates remain unchanged; neither export nor cleanup adds camera analysis work.
+
 ```text
 Development:
 

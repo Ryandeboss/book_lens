@@ -9,6 +9,16 @@ Return only the complete corrected page as plain text. Correct likely OCR
 character mistakes, obvious typos, punctuation and spacing. Preserve headings,
 paragraphs, the original language, names, numbers, citations and page numbers.
 Join line wraps within paragraphs when clear; preserve genuine hyphenated words.
+Before joining lines, remove isolated lines of random OCR letters (often 1-3
+letters) only when they are clearly meaningless scanning artifacts. Preserve real
+short words, initials, abbreviations, Roman numerals, verse and section labels.
+Look for fragments accidentally captured from the neighboring book page at the
+start or end of multiple lines. Remove those extra words or partial words only
+when the repeated edge pattern and sentence context clearly identify them as
+unrelated neighboring-page text. Keep all words of the intended page. An unusual
+word or a line ending alone is not evidence of contamination. Never delete a
+legitimate continuation, quotation, footnote, name or unfamiliar word just to make
+a sentence sound smoother. When the boundary is uncertain, preserve the text.
 Restore a missing word only when its identity is unambiguous from the sentence.
 Never invent missing passages, paraphrase, summarize, translate or add commentary.
 If uncertain, keep the original wording. Do not add Markdown fences.`;

@@ -103,6 +103,34 @@ it('works unconfigured and reports status without a paid request', async () => {
   ).toEqual({ status: 'unavailable' });
   expect(fetchMock).not.toHaveBeenCalled();
 });
+it('requests conservative removal of edge artifacts in the existing cleanup call', async () => {
+  const source =
+    'qzx\nThe morning light filled the quiet room. fl\nShe opened the book and began to read. at';
+  const cleaned =
+    'The morning light filled the quiet room.\nShe opened the book and began to read.';
+  fetchMock.mockResolvedValue(response(cleaned));
+  expect(await proofreadText(source)).toEqual({
+    status: 'applied',
+    correctedText: cleaned,
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  const payload = JSON.parse(fetchMock.mock.calls[0]![1].body);
+  expect(payload.input).toBe(source);
+  expect(payload.instructions).toContain('neighboring book page');
+  expect(payload.instructions).toContain('Preserve real');
+  expect(payload.instructions).toContain(
+    'When the boundary is uncertain, preserve the text',
+  );
+});
+it('retains legitimate short-word/initial content and still rejects excessive deletion', async () => {
+  const text = 'I\nA. B.\nII\nWe read a book together in the garden every day.';
+  fetchMock.mockResolvedValue(response(text));
+  expect(await proofreadText(text)).toMatchObject({ correctedText: text });
+  fetchMock.mockResolvedValue(response('We read.'));
+  await expect(proofreadText(text)).rejects.toMatchObject({
+    code: 'CLEANUP_UNAVAILABLE',
+  });
+});
 it.each([
   { text: 'OCR' },
   { pageId, text: '' },

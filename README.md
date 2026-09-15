@@ -1,6 +1,6 @@
 # BookLens
 
-A mobile-first web application for turning printed pages into editable text. BookLens supports continuous automatic scanning, perspective correction, Google Document AI Enterprise OCR with browser Tesseract fallback, multi-page editing, and TXT download. Sessions are in memory only.
+A mobile-first web application for turning printed pages into editable text. BookLens supports continuous automatic scanning, perspective correction, Google Document AI Enterprise OCR with browser Tesseract fallback, multi-page editing, TXT/DOCX downloads, and optional Google Text-to-Speech MP3 export. Active drafts recover locally from IndexedDB for 24 hours.
 
 ## Current Feature Status
 
@@ -12,6 +12,8 @@ A mobile-first web application for turning printed pages into editable text. Boo
 - [x] Multi-page scan sessions
 - [x] Editable OCR review
 - [x] TXT export
+- [x] DOCX export with paragraphs and page breaks
+- [x] Optional downloadable MP3 using Google Cloud Text-to-Speech
 - [x] Fixed full-frame scan animation and green saved-shot feedback
 - [x] Reversible duplicate-text exclusion with original shot positions
 - [x] Page boundary detection
@@ -25,9 +27,11 @@ A mobile-first web application for turning printed pages into editable text. Boo
 
 Run `npm.cmd run dev` and open http://localhost:5173/scan. Start Camera and center one page. BookLens checks motion, lighting and focus, then takes a temporary trial photo after a brief steady hold. **A shot is queued and flashes green as soon as local photo preparation finishes.** Google OCR and AI cleanup run in the background; low or missing confidence does not hold up capture. There are no margin or cut-off line checks. Strong perspective distortion prompts you to hold the phone parallel to the page, without an extra OCR call or hold time. Printed-line evidence plus focus qualifies the shot; a focused object or paper-shaped outline alone is insufficient. The fixed animation covers the camera image, and the full photo is queued without a text-region crop. Turn the page during the two-second pause; the camera then looks for another clear, steady shot. No clear margin is required.
 
-A detected page is perspective-corrected, including headings and footnotes. Without reliable page corners, the full visible photograph is retained. Native still-photo capture is preferred where supported; otherwise the actual video resolution is used. Images are compressed at high quality. Up to 30 pending photos / 48 MiB can queue while optional AI cleanup runs independently of capture. OCR confidence appears after recognition finishes and is informational. At the memory limit, scanning waits for capacity automatically. Photos exist temporarily in this tab, not in a persistent gallery; keep it open.
+A detected page is perspective-corrected, including headings and footnotes. Without reliable page corners, the full visible photograph is retained. Native still-photo capture is preferred where supported; otherwise the actual video resolution is used. Images are compressed at high quality. Up to 30 pending photos / 48 MiB can queue while optional AI cleanup runs independently of capture. OCR confidence appears after recognition finishes and is informational. At the memory limit, scanning waits for capacity automatically. Needed pending/retry photos are saved in the local recovery draft and released after OCR; there is no permanent gallery.
 
 Holding the same page can save it again after the pause. Once OCR finishes, a conservative text comparison sets likely duplicates aside with their original shot numbers. Review lets you inspect and restore them. Short pages and ambiguous matches stay in the document to avoid losing content.
+
+In Review, download the edited document as TXT or DOCX, or open **Listen to your document** to generate an MP3. All formats exclude duplicates set aside. Cleanup now targets obvious stray-letter lines and neighboring-page fragments within the existing AI call. See [cleanup and export setup](docs/document-and-audio-export.md) for the Render speech settings, privacy and limits.
 
 See the [automatic capture report and phone tuning checklist](docs/automatic-capture-verification.md) for the exact gates, compatibility fallbacks, tests, and settings. Physical iPhone/Android testing is still required.
 

@@ -21,6 +21,13 @@ export const errorHandler: ErrorRequestHandler = (
       .json({ error: 'Invalid image upload.', code: error.code });
     return;
   }
+  if (_req.path.startsWith('/api/speech')) {
+    logger.warn('Audio request failed');
+    res
+      .status(400)
+      .json({ error: 'Invalid audio request.', code: 'INVALID_REQUEST' });
+    return;
+  }
   if (
     _req.path.startsWith('/api/ocr') ||
     _req.path.startsWith('/api/proofread')

@@ -150,7 +150,7 @@ it('restores a duplicate at its original position and can undo AI cleanup before
       .trigger('click');
   await click('Download TXT');
   expect(downloadText).toHaveBeenLastCalledWith('Cleaned first page');
-  await click('Keep this page in TXT');
+  await click('Keep this page in document');
   expect(wrapper.findAll('textarea')).toHaveLength(2);
   await click('Use original OCR');
   expect(store.pages[0]?.rawText).toBe(raw);

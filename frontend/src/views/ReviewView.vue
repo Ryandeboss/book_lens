@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import AppButton from '../components/common/AppButton.vue';
 import PageTextEditor from '../components/scan/PageTextEditor.vue';
 import { useScanStore } from '../stores/scan';
-import { downloadText } from '../services/downloadText';
+import DocumentDownloads from '../components/scan/DocumentDownloads.vue';
 import { useOcrQueue } from '../composables/useOcrQueue';
 import AiCleanupOptions from '../components/scan/AiCleanupOptions.vue';
 import { useReviewCleanup } from '../composables/useReviewCleanup';
@@ -15,7 +14,6 @@ const router = useRouter();
 const queue = useOcrQueue();
 const cleanup = useReviewCleanup();
 const draft = useScanDraft();
-const exportError = ref('');
 function removePage(id: string) {
   if (window.confirm('Delete this page from your document?')) {
     queue.forget(id);
@@ -38,7 +36,7 @@ async function startNew() {
 async function finishScan() {
   if (
     !window.confirm(
-      'Finish and clear this scan from this device? Download your TXT first if you want to keep it.',
+      'Finish and clear this scan from this device? Download your document first if you want to keep it.',
     )
   )
     return;
@@ -46,21 +44,6 @@ async function finishScan() {
   session.clearSession();
   await draft?.flush();
   void router.push('/');
-}
-function download() {
-  if (
-    session.pages.some((p) => p.status !== 'ready') &&
-    !window.confirm(
-      'Some pages have not been read. Download available text anyway?',
-    )
-  )
-    return;
-  exportError.value = '';
-  try {
-    downloadText(session.combinedText);
-  } catch {
-    exportError.value = 'The download could not start. Please try again.';
-  }
 }
 </script>
 <template>
@@ -90,24 +73,28 @@ function download() {
     </details>
     <p class="document-summary">
       {{ session.pages.length }}
-      {{ session.pages.length === 1 ? 'page' : 'pages' }} · Download TXT to keep
-      a permanent copy.
+      {{ session.pages.length === 1 ? 'page' : 'pages' }} · Download your
+      document to keep a permanent copy.
     </p>
     <p v-if="!session.pages.length">
       No pages yet. Scan a page to start your document.
     </p>
     <div class="scan-actions">
-      <AppButton v-if="session.pages.length" @click="download"
-        >Download TXT</AppButton
-      >
       <AppButton to="/scan">{{
         session.pages.length ? 'Scan Another Page' : 'Start Scanning'
       }}</AppButton>
     </div>
-    <p v-if="exportError" class="scan-error" role="alert">{{ exportError }}</p>
+    <DocumentDownloads
+      v-if="session.pages.length"
+      :pages="session.includedPages.map((p) => p.editedText)"
+      :pending="
+        session.includedPages.some((p) => p.status !== 'ready') ||
+        cleanup.busy.value
+      "
+    />
     <p v-if="session.duplicatePages.length" role="status">
       {{ session.duplicatePages.length }} likely duplicate(s) set aside below
-      and excluded from TXT.
+      and excluded from all downloads.
     </p>
     <article
       v-for="page in session.includedPages"
@@ -227,7 +214,7 @@ function download() {
     </article>
     <details v-if="session.duplicatePages.length" class="document-card" open>
       <summary>
-        Likely duplicates — excluded from TXT ({{
+        Likely duplicates — excluded from downloads ({{
           session.duplicatePages.length
         }})
       </summary>
@@ -255,7 +242,7 @@ function download() {
           class="secondary-button"
           @click="session.keepDuplicate(page.id, true)"
         >
-          Keep this page in TXT
+          Keep this page in document
         </button>
         <button
           type="button"
