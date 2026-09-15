@@ -67,6 +67,29 @@ it('rejects converging edges, corner skew and extreme foreshortening', () => {
     ),
   ).toBe(true);
 });
+it('accepts moderate handheld taper, skew and foreshortening', () => {
+  const tapered: Quad = [
+    { x: 0.25, y: 0.1 },
+    { x: 0.75, y: 0.1 },
+    { x: 0.9, y: 0.9 },
+    { x: 0.1, y: 0.9 },
+  ];
+  const skewed: Quad = [
+    { x: 0.4, y: 0.1 },
+    { x: 0.95, y: 0.1 },
+    { x: 0.67, y: 0.9 },
+    { x: 0.12, y: 0.9 },
+  ];
+  const narrowed: Quad = [
+    { x: 0.3, y: 0.1 },
+    { x: 0.7, y: 0.1 },
+    { x: 0.7, y: 0.9 },
+    { x: 0.3, y: 0.9 },
+  ];
+  expect(pageIsOblique(tapered, 480, 640)).toBe(false);
+  expect(pageIsOblique(skewed, 640, 480)).toBe(false);
+  expect(pageIsOblique(narrowed, 480, 640)).toBe(false);
+});
 const rows = (): TextLineShape[] =>
   Array.from({ length: 12 }, (_, i) => ({
     x: 200,
@@ -100,6 +123,14 @@ it('rejects text scale gradients and converging lines without a paper boundary',
   expect(
     textIsOblique(rows().map((r, i) => ({ ...r, angle: -10 + 2 * i }))),
   ).toBe(true);
+});
+it('accepts moderate text perspective without a visible page boundary', () => {
+  expect(
+    textIsOblique(rows().map((r, i) => ({ ...r, thickness: 9 + i * 0.6 }))),
+  ).toBe(false);
+  expect(
+    textIsOblique(rows().map((r, i) => ({ ...r, angle: -6 + i * 1.2 }))),
+  ).toBe(false);
 });
 it('ignores common text rotation and multiple words on one row', () => {
   expect(textIsOblique(rows().map((r) => ({ ...r, angle: 15 })))).toBe(false);
