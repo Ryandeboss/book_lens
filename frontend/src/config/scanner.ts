@@ -52,6 +52,7 @@ export const scannerConfig = {
   textLineMinWidth: 0.06,
   textLineMaxHeight: 0.09,
   textLineMergeGap: 0.065,
+  textLineMinInkRuns: 4, // Letter-like separated strokes, not solid fabric stripes.
   textCaptureMinLines: 3,
   textCaptureMinWidth: 0.25,
   textCaptureMinHeight: 0.12,

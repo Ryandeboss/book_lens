@@ -183,6 +183,29 @@ it('saves and flashes green before OCR finishes, then queues the next photo', as
   });
   expect(wrapper.get('.ocr-confidence').text()).toContain('85.0%');
 });
+
+it('waits on a focused non-text object without reserving a page or calling OCR, then captures text normally', async () => {
+  vision.analyze.mockResolvedValue({
+    ...page(),
+    source: 'page',
+    textPresent: false,
+    aligned: false,
+    gate: 'text',
+    hint: 'textRequired',
+  });
+  await ready();
+  await advance(3000);
+  expect(wrapper.text()).toContain('Point the camera at printed text');
+  expect(useScanStore().pages).toHaveLength(0);
+  expect(vision.process).not.toHaveBeenCalled();
+  expect(engine.recognize).not.toHaveBeenCalled();
+
+  vision.analyze.mockResolvedValue({ ...page(), textPresent: true });
+  await advance(650);
+  expect(useScanStore().pages).toHaveLength(1);
+  expect(useScanStore().pages[0]?.capturePosition).toBe(1);
+  expect(vision.process).toHaveBeenCalledOnce();
+});
 it.each([79.99, undefined])(
   'keeps a photo with %s confidence without pausing capture',
   async (confidence) => {

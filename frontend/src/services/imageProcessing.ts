@@ -19,7 +19,11 @@ import {
 } from './scannerGeometry';
 import { FrameMotion } from './frameMotion';
 import { visualSignature, findRecentDuplicate } from './pageFingerprint';
-import { estimateTextBody, canCaptureTextBody } from './textBody';
+import {
+  estimateTextBody,
+  canCaptureTextBody,
+  hasPrintedStrokes,
+} from './textBody';
 type OpenCv = typeof CV;
 
 function signature(cv: OpenCv, gray: CV.Mat) {
@@ -296,6 +300,13 @@ export function analyzePage(
       const line = lines.get(i);
       try {
         const r = cv.boundingRect(line);
+        if (
+          r.width / w < config.textLineMinWidth ||
+          r.height / h > config.textLineMaxHeight ||
+          r.width / r.height < 3 ||
+          !hasPrintedStrokes(binary.data, w, r)
+        )
+          continue;
         boxes.push({
           x: r.x / w,
           y: r.y / h,
@@ -320,9 +331,10 @@ export function analyzePage(
           };
         }) as Quad)
       : null;
-    // A page outline OR printed text establishes page presence. No blank margin,
-    // line-end, corner-clearance or OCR-confidence check is required.
-    const aligned = !!best || textCapture;
+    // An outline alone can be a leg, furniture or another focused object.
+    // Require printed-line evidence already computed in this preview, without
+    // adding an OCR call, extra hold time or any margin/line-end requirement.
+    const aligned = textCapture;
     return {
       ...base,
       textBody,
