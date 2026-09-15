@@ -3,12 +3,12 @@
 ## What the user sees
 
 1. Center a page and hold it still with sufficient light and focus.
-2. The current camera/focus/stability checks prepare a photo. Green means **the photo is queued**, so you can turn the page immediately. A lightweight local check asks you to move back if text lines are visibly cut off at the camera edge.
+2. The current camera/focus/stability checks prepare a photo. Green means **the photo is queued**, so you can turn the page immediately. The scan sweep and green confirmation cover a fixed full-camera frame, with no dynamic text box. A page outline or printed text establishes page presence; no margin or cut-off line check is required.
 3. Turn the page during the two-second pause. The camera then seeks another clear shot.
 4. Google OCR and AI cleanup run behind the scenes. Neither holds up capture; press Done when finished photographing. Confidence appears when OCR finishes and is informational.
 5. Keep the tab open until processing finishes. Review, undo corrections or restore duplicates, then Download TXT.
 
-Low or unavailable OCR confidence does not pause capture or remove a queued photo. Manual Capture also queues OCR in the background. The existing guide fallback, native camera behavior, crop and two-second cooldown remain. No new mode, four-paper-edge rule or blank-margin requirement was added. There is no visual page-turn lock. Repeated photos are allowed and checked after OCR. The queue retains at most 30 pending images / 48 MiB, with one active cleanup job by default (two configurable through the existing OCR setting). At the limit it waits for capacity. A failed OCR image can be retried within the existing two-image / 12 MiB retry cache. Success releases the image after the job; reset releases the queue. These are temporary browser objects, not durable saved photos.
+Low or unavailable OCR confidence does not pause capture or remove a queued photo. Manual Capture also queues OCR in the background. Native camera capture and the two-second cooldown remain. The complete shot is retained for OCR instead of cropping to detected page/text coordinates; OpenCV normalization, compression and background processing continue. No new mode, four-paper-edge rule or blank-margin requirement was added. There is no visual page-turn lock. Repeated photos are allowed and checked after OCR. The queue retains at most 30 pending images / 48 MiB, with one active cleanup job by default (two configurable through the existing OCR setting). At the limit it waits for capacity. A failed OCR image can be retried within the existing two-image / 12 MiB retry cache. Success releases the image after the job; reset releases the queue. These are temporary browser objects, not durable saved photos.
 
 ## Enable OpenAI on Render
 

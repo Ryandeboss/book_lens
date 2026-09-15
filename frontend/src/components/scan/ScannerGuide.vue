@@ -1,65 +1,56 @@
 <script setup lang="ts">
 import { computed, useId } from 'vue';
-import type { AutoScanState, Quad } from '../../types/scanner';
+import type { AutoScanState } from '../../types/scanner';
 const props = defineProps<{
   width: number;
   height: number;
   state: AutoScanState;
-  corners: Quad | null;
-  textBody?: Quad | null;
   progress?: number;
 }>();
 const clipId = useId();
 const isScanning = computed(
   () => props.state === 'stabilizing' || props.state === 'capturing',
 );
-const region = computed(() => props.textBody ?? props.corners);
-const regionBounds = computed(() => {
-  if (!region.value) return null;
-  const xs = region.value.map((p) => p.x * props.width),
-    ys = region.value.map((p) => p.y * props.height);
-  return {
-    x: Math.min(...xs),
-    y: Math.min(...ys),
-    width: Math.max(...xs) - Math.min(...xs),
-    height: Math.max(...ys) - Math.min(...ys),
-  };
-});
-const asPoints = (quad?: Quad | null) =>
-  quad?.map((p) => `${p.x * props.width},${p.y * props.height}`).join(' ');
-const points = computed(() => asPoints(props.corners));
-const bodyPoints = computed(() => asPoints(props.textBody));
-const center = computed(() => {
-  const region = props.textBody ?? props.corners;
-  return region
-    ? {
-        x: (region.reduce((n, p) => n + p.x, 0) * props.width) / 4,
-        y: (region.reduce((n, p) => n + p.y, 0) * props.height) / 4,
-      }
-    : null;
-});
+// The overlay always covers the complete camera image, never a detected text box.
+const points = computed(
+  () =>
+    '0,0 ' +
+    props.width +
+    ',0 ' +
+    props.width +
+    ',' +
+    props.height +
+    ' 0,' +
+    props.height,
+);
+const regionBounds = computed(() => ({
+  x: 0,
+  y: 0,
+  width: props.width,
+  height: props.height,
+}));
+const center = computed(() => ({ x: props.width / 2, y: props.height / 2 }));
 </script>
 <template>
   <svg
     class="scanner-guide"
-    :class="[state, { found: !!points || !!bodyPoints }]"
+    :class="state"
     :viewBox="`0 0 ${width} ${height}`"
     preserveAspectRatio="xMidYMid meet"
     aria-hidden="true"
   >
     <defs>
       <clipPath :id="clipId">
-        <polygon :points="bodyPoints || points" />
+        <polygon :points="points" />
       </clipPath>
     </defs>
     <polygon v-if="points" class="page-boundary" :points="points" />
-    <polygon v-if="bodyPoints" class="text-body" :points="bodyPoints" />
     <g
       v-if="isScanning && regionBounds"
       class="scanning-region"
       :clip-path="`url(#${clipId})`"
     >
-      <polygon class="scanning-tint" :points="bodyPoints || points" />
+      <polygon class="scanning-tint" :points="points" />
       <line
         class="scan-sweep"
         :x1="regionBounds.x"
@@ -70,16 +61,16 @@ const center = computed(() => {
       />
     </g>
     <polygon
-      v-if="state === 'stabilizing' && (bodyPoints || points)"
+      v-if="state === 'stabilizing' && points"
       class="hold-progress"
-      :points="bodyPoints || points"
+      :points="points"
       pathLength="100"
       :stroke-dasharray="`${Math.max(0, Math.min(1, progress ?? 0)) * 100} 100`"
     />
     <polygon
-      v-if="state === 'captured' && (bodyPoints || points)"
+      v-if="state === 'captured' && points"
       class="accepted-region"
-      :points="bodyPoints || points"
+      :points="points"
     />
     <text
       v-if="state === 'captured' && center"
@@ -122,11 +113,6 @@ rect {
 }
 .page-boundary {
   stroke-width: 3;
-}
-.text-body {
-  stroke-width: 1.5;
-  stroke-dasharray: 5 3;
-  opacity: 0.9;
 }
 .detected,
 .duplicate {

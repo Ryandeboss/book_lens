@@ -81,7 +81,7 @@ try {
   await evaluate(
     `window.ocrUploads=[];const originalFetch=window.fetch;window.fetch=async(...args)=>{const [url,options]=args;if(String(url).endsWith('/proofread')){const status=await originalFetch(String(url)+'/status');if(!status.ok||(await status.json()).configured!==false)throw new Error('Smoke test requires unconfigured cleanup; no paid request');}if(String(url).endsWith('/ocr')&&options?.body instanceof FormData){const capability=await originalFetch(String(url)+'/status');if(!capability.ok||(await capability.json()).googleDocumentAiConfigured!==false)throw new Error('Smoke check requires unconfigured cloud OCR; no image uploaded');const image=options.body.get('image');const info={type:image.type,bytes:image.size,pageId:options.body.get('pageId')};window.ocrUploads.push(info);const response=await originalFetch(...args);info.status=response.status;return response;}return originalFetch(...args);};`,
   );
-  await evaluate(`window.testClippedText=${clippedText};`);
+  await evaluate(`window.testClippedText=false;`);
   if (slowOcr)
     await evaluate(
       `const guardedFetch=window.fetch;window.fetch=async(...args)=>{if(String(args[0]).endsWith('/ocr')){window.delayedOcrStarted=true;await new Promise(r=>setTimeout(r,12000));}return guardedFetch(...args);};`,
@@ -105,34 +105,21 @@ try {
   console.log('PASS motion prevents capture');
   if (!(await evaluate("!!document.querySelector('.cleanup-options input')")))
     throw new Error('AI cleanup option hidden while scanning');
-  await evaluate('window.moving=false');
-  if (clippedText) {
-    await sleep(1800);
-    if (
-      !(await evaluate(
-        "document.querySelector('.counts').textContent.includes('0 shots saved') && document.querySelector('[data-state]').textContent.includes('text is cut off')",
-      ))
-    )
-      throw new Error('Expected cut-off text guidance without capturing');
-    console.log(
-      'PASS cropped line ends block capture without requiring paper edges',
-    );
-    await evaluate('window.testClippedText=false');
-  }
+  await evaluate(`window.moving=false;window.testClippedText=${clippedText};`);
   await wait("!!document.querySelector('.scan-sweep')");
   if (
     !(await evaluate(
-      "!!document.querySelector('.text-body') && !!document.querySelector('.capture-progress')",
+      "!!document.querySelector('.page-boundary') && !document.querySelector('.text-body') && !!document.querySelector('.capture-progress')",
     ))
   )
-    throw new Error('Missing text outline or automatic progress');
+    throw new Error('Missing fixed page frame or automatic progress');
   await mkdir('.docker-local', { recursive: true });
   const scanningShot = await call('Page.captureScreenshot', { format: 'png' });
   await writeFile(
     '.docker-local/auto-text-scanning.png',
     Buffer.from(scanningShot.data, 'base64'),
   );
-  console.log('PASS animated text outline and automatic capture progress');
+  console.log('PASS fixed full-frame animation and automatic capture progress');
   await wait(
     "document.querySelector('.counts')?.textContent.includes('1 shots saved')",
     45000,
@@ -152,6 +139,8 @@ try {
     ))
   )
     throw new Error('Missing regional success overlay');
+  if (clippedText)
+    console.log('PASS text at camera edges does not block focused capture');
   const savedAt = Date.now();
   const analysesAtSave = await evaluate('window.analysisStarts.length');
   await sleep(1000);
@@ -170,7 +159,7 @@ try {
   );
   if (Date.now() - savedAt < 1950) throw new Error('Second photo too early');
   console.log('PASS same page can be photographed after two-second pause');
-  await evaluate('window.testPage=2');
+  await evaluate('window.testPage=2;window.testClippedText=false');
   await wait(
     "document.querySelector('.counts')?.textContent.includes('3 shots saved')",
     15000,

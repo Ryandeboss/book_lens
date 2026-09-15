@@ -4,7 +4,7 @@ import { AutoScanMachine } from '../services/autoScanMachine';
 import { usePageDetection } from './usePageDetection';
 import { useOcrQueue } from './useOcrQueue';
 import { useScanStore } from '../stores/scan';
-import { guideCorners, guideForFrame } from '../services/scannerGeometry';
+import { guideCorners } from '../services/scannerGeometry';
 import {
   captureStill,
   decodeStill,
@@ -49,10 +49,6 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
         }, config.statusHoldMs);
     },
   );
-  const acceptedRegion = shallowRef<Pick<
-    Detection,
-    'corners' | 'textBody'
-  > | null>(null);
   const duplicateMatch = shallowRef<DuplicateMatch | null>(null);
   const detection = shallowRef<Detection | null>(null);
   const width = ref(1),
@@ -211,12 +207,11 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
         capturedCanvas = await decodeStill(still.blob);
       }
       let fullFrame: VisionFrame;
-      let captureDetection = detection.value;
       try {
         if (!valid()) return;
         captureSource.value = still.source;
-        // Re-detect native still geometry in its own orientation/field of view.
-        // The full-resolution warp uses normalized coordinates from this SAME image.
+        // Verify focus on the native still, which can have a different field of view.
+        // Always preserve the complete photo rather than cropping to preview text.
         if (still.source === 'photo') {
           const scale = Math.min(
             1,
@@ -233,7 +228,7 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
             if ('close' in previewFrame) previewFrame.close();
             return;
           }
-          captureDetection = await vision.analyze(previewFrame, true);
+          const captureDetection = await vision.analyze(previewFrame, true);
           if (!valid()) return;
           if (!manual && !captureDetection.aligned) {
             machine.state = 'detected';
@@ -252,9 +247,9 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
       }
       const result = await vision.process(
         fullFrame,
-        captureDetection?.captureCorners ?? captureDetection?.corners ?? null,
+        guideCorners({ x: 0, y: 0, width: 1, height: 1 }),
         [], // Compare OCR text later; never silently discard a saved shot.
-        captureDetection?.textBody ?? null,
+        null,
       );
       if (current !== generation || disposed) return;
       duplicateMatch.value = result.duplicateMatch ?? null;
@@ -270,14 +265,6 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
         return;
       }
       if (!finishing.value) {
-        acceptedRegion.value = {
-          corners: detection.value?.textBody
-            ? null
-            : (detection.value?.captureCorners ??
-              detection.value?.corners ??
-              guideCorners(guideForFrame(width.value, height.value))),
-          textBody: detection.value?.textBody ?? null,
-        };
         machine.savedShot(
           performance.now(),
           `\u2713 Shot ${session.pages.find((p) => p.id === id)!.capturePosition} saved — OCR queued — turn the page`,
@@ -458,7 +445,6 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
     queue.cancelInspection();
     clearTimeout(feedbackTimer);
     clearTimeout(guidanceTimer);
-    acceptedRegion.value = null;
     duplicateMatch.value = null;
     generation++;
     flight = null;
@@ -486,7 +472,6 @@ export function useAutoScan(getVideo: () => HTMLVideoElement | null) {
     machine,
     displayMessage,
     confidenceLabel,
-    acceptedRegion,
     duplicateMatch,
     detection,
     width,

@@ -12,7 +12,7 @@ A mobile-first web application for turning printed pages into editable text. Boo
 - [x] Multi-page scan sessions
 - [x] Editable OCR review
 - [x] TXT export
-- [x] Live page and main text-body overlays
+- [x] Fixed full-frame scan animation and green saved-shot feedback
 - [x] Reversible duplicate-text exclusion with original shot positions
 - [x] Page boundary detection
 - [x] Perspective correction
@@ -23,7 +23,7 @@ A mobile-first web application for turning printed pages into editable text. Boo
 
 ## Scan a book
 
-Run `npm.cmd run dev` and open http://localhost:5173/scan. Start Camera and center one page. BookLens checks motion, lighting and focus, then takes a temporary trial photo after a brief steady hold. **A shot is queued and flashes green as soon as local photo preparation finishes.** Google OCR and AI cleanup run in the background; low or missing confidence does not hold up capture. A lightweight line check asks you to move back only when text-like rows visibly touch the camera boundary. Turn the page during the two-second pause; the camera then looks for another clear, steady shot. Printed-text detection is optional and no clear margin is required.
+Run `npm.cmd run dev` and open http://localhost:5173/scan. Start Camera and center one page. BookLens checks motion, lighting and focus, then takes a temporary trial photo after a brief steady hold. **A shot is queued and flashes green as soon as local photo preparation finishes.** Google OCR and AI cleanup run in the background; low or missing confidence does not hold up capture. There are no margin or cut-off line checks. A page outline or printed text establishes page presence; focus qualifies the shot. The fixed animation covers the camera image, and the full photo is queued without a text-region crop. Turn the page during the two-second pause; the camera then looks for another clear, steady shot. No clear margin is required.
 
 A detected page is perspective-corrected, including headings and footnotes. Without reliable page corners, the full visible photograph is retained. Native still-photo capture is preferred where supported; otherwise the actual video resolution is used. Images are compressed at high quality. Up to 30 pending photos / 48 MiB can queue while optional AI cleanup runs independently of capture. OCR confidence appears after recognition finishes and is informational. At the memory limit, scanning waits for capacity automatically. Photos exist temporarily in this tab, not in a persistent gallery; keep it open.
 

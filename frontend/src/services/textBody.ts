@@ -1,35 +1,5 @@
 import { scannerConfig as config } from '../config/scanner';
 import type { Guide } from '../types/scanner';
-// Only flag text-like rows actually touching the image boundary. No minimum
-// paper margin, page outline or dense text block is required.
-export function hasClippedTextLines(
-  lines: Guide[],
-  width: number,
-  height: number,
-): boolean {
-  const rows = lines
-    .filter(
-      (r) =>
-        r.width >= 0.08 &&
-        r.height >= 2 / height &&
-        r.height <= config.textLineMaxHeight &&
-        r.width / r.height >= 3,
-    )
-    .sort((a, b) => a.y - b.y);
-  const distinct = rows.filter(
-    (r, i) =>
-      !rows
-        .slice(0, i)
-        .some((p) => Math.abs(p.y - r.y) < Math.min(p.height, r.height) / 2),
-  );
-  const left = distinct.filter((r) => r.x <= 1 / width).length;
-  const right = distinct.filter((r) => r.x + r.width >= 1 - 1 / width).length;
-  return (
-    left >= 2 ||
-    right >= 2 ||
-    distinct.some((r) => r.y <= 1 / height || r.y + r.height >= 1 - 1 / height)
-  );
-}
 // Rectangles are normalized line candidates from the worker, never word OCR.
 export function estimateTextBody(lines: Guide[]): Guide | null {
   const candidates = lines

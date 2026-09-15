@@ -15,16 +15,11 @@ import {
   outputSize,
   orderCorners,
   polygonArea,
-  alignmentFor,
   cornerDistance,
 } from './scannerGeometry';
 import { FrameMotion } from './frameMotion';
 import { visualSignature, findRecentDuplicate } from './pageFingerprint';
-import {
-  estimateTextBody,
-  canCaptureTextBody,
-  hasClippedTextLines,
-} from './textBody';
+import { estimateTextBody, canCaptureTextBody } from './textBody';
 type OpenCv = typeof CV;
 
 function signature(cv: OpenCv, gray: CV.Mat) {
@@ -130,9 +125,7 @@ export function analyzePage(
       cv.CHAIN_APPROX_SIMPLE,
     );
     const guide = guideForFrame(src.cols, src.rows);
-    let approximate = false,
-      wide = false;
-    const candidates: { quad: Quad; score: number }[] = [];
+    let approximate = false;
     let best: Quad | null = null,
       bestScore = 0;
     for (let i = 0; i < contours.size(); i++) {
@@ -168,14 +161,9 @@ export function analyzePage(
         );
         const size = outputSize(p, src.cols, src.rows),
           aspect = size.width / size.height;
-        if (aspect > config.singlePageMaxAspect) {
-          wide = true;
+        if (aspect > config.singlePageMaxAspect || aspect < config.minAspect)
           continue;
-        }
-        if (aspect < config.minAspect) continue;
-        const a = alignmentFor(p, guide);
-        const score = polygonArea(p) * (a.score + 0.2) * (relaxed ? 0.95 : 1);
-        candidates.push({ quad: p, score });
+        const score = polygonArea(p) * (relaxed ? 0.95 : 1);
         if (score > bestScore) {
           best = p;
           approximate = relaxed;
@@ -187,26 +175,10 @@ export function analyzePage(
         contour.delete();
       }
     }
-    // Distinct, similarly ranked page candidates are ambiguous; nested contours are not.
-    const center = (q: Quad) => ({
-      x: q.reduce((n, p) => n + p.x, 0) / 4,
-      y: q.reduce((n, p) => n + p.y, 0) / 4,
-    });
-    const ambiguous =
-      best &&
-      candidates.some(
-        (c) =>
-          c.score >= bestScore * (1 - config.candidateAmbiguity) &&
-          Math.hypot(
-            center(c.quad).x - center(best!).x,
-            center(c.quad).y - center(best!).y,
-          ) > 0.18,
-      );
-    if (ambiguous) best = null;
-    // If the paper edge is incomplete/misaligned, inspect the guide for printed
-    // text instead. Use the guide crop, never invent perspective corners.
-    const boundaryAligned = best ? alignmentFor(best, guide).aligned : false;
-    const bounds = boundaryAligned ? best! : guideCorners(guide);
+    // Page edges are useful for measuring focus, but margins and position
+    // inside the guide never gate capture. Borderless pages use text presence.
+    const bounds = best ?? guideCorners(guide);
+    const fullFrame = guideCorners({ x: 0, y: 0, width: 1, height: 1 });
     const size = outputSize(bounds, src.cols, src.rows);
     const scale = Math.min(
       1,
@@ -263,13 +235,11 @@ export function analyzePage(
     const sharpness = deviation.data64F[0]! ** 2;
     const brightness = cv.mean(roi)[0]!;
     const base: Detection = {
-      source: boundaryAligned ? 'page' : 'guide',
-      corners: boundaryAligned ? best : null,
-      captureCorners: boundaryAligned
-        ? best!
-        : guideCorners({ x: 0, y: 0, width: 1, height: 1 }),
+      source: best ? 'page' : 'guide',
+      corners: best ? fullFrame : null,
+      captureCorners: fullFrame,
       aligned: false,
-      alignment: best ? alignmentFor(best, guide).score : 0,
+      alignment: best ? 1 : 0,
       sharpness,
       brightness,
       signature: globalSignature,
@@ -278,11 +248,11 @@ export function analyzePage(
       approximate,
       analysisWidth: src.cols,
       analysisHeight: src.rows,
-      hint: ambiguous || wide ? 'centerOnePage' : 'textRequired',
+      hint: 'textRequired',
     };
     // Without paper edges, sample the central page area rather than diluting
     // text motion with the blank background surrounding the book.
-    const motionRegion = boundaryAligned ? best! : guideCorners(guide);
+    const motionRegion = guideCorners(guide);
     if (
       motion &&
       (!motion.roi ||
@@ -291,8 +261,6 @@ export function analyzePage(
       motion.roi = motionRegion;
       motion.previous = null;
     }
-    if (ambiguous || (wide && !boundaryAligned))
-      return { ...base, gate: 'page' };
     // Fail before thresholding/contours when light or focus cannot support OCR.
     if (brightness < config.minBrightness) return { ...base, gate: 'lighting' };
     if (sharpness < config.minSharpness) return { ...base, gate: 'sharpness' };
@@ -340,44 +308,6 @@ export function analyzePage(
     }
     const body = estimateTextBody(boxes);
     const textCapture = canCaptureTextBody(boxes, body);
-    // Check the actual camera edges, not the inner guide or estimated page crop.
-    const frameBinary = own(new cv.Mat()),
-      frameLines = own(new cv.Mat()),
-      frameContours = own(new cv.MatVector()),
-      frameHierarchy = own(new cv.Mat());
-    cv.adaptiveThreshold(
-      gray,
-      frameBinary,
-      255,
-      cv.ADAPTIVE_THRESH_GAUSSIAN_C,
-      cv.THRESH_BINARY_INV,
-      config.textThresholdBlock,
-      config.textThresholdOffset,
-    );
-    cv.morphologyEx(frameBinary, frameLines, cv.MORPH_CLOSE, kernel);
-    cv.findContours(
-      frameLines,
-      frameContours,
-      frameHierarchy,
-      cv.RETR_LIST,
-      cv.CHAIN_APPROX_SIMPLE,
-    );
-    const frameBoxes = [];
-    for (let i = 0; i < frameContours.size(); i++) {
-      const line = frameContours.get(i);
-      try {
-        const r = cv.boundingRect(line);
-        frameBoxes.push({
-          x: r.x / src.cols,
-          y: r.y / src.rows,
-          width: r.width / src.cols,
-          height: r.height / src.rows,
-        });
-      } finally {
-        line.delete();
-      }
-    }
-    const clippedText = hasClippedTextLines(frameBoxes, src.cols, src.rows);
     const m = inverse.data64F;
     const textBody: Quad | null = body
       ? (guideCorners(body).map((p) => {
@@ -390,12 +320,11 @@ export function analyzePage(
           };
         }) as Quad)
       : null;
-    // Photo-first capture: focus, light and motion decide readiness. Text boxes
-    // are optional overlay hints; OCR starts only after a photo has been saved.
-    const aligned = !clippedText && (boundaryAligned || (!ambiguous && !wide));
+    // A page outline OR printed text establishes page presence. No blank margin,
+    // line-end, corner-clearance or OCR-confidence check is required.
+    const aligned = !!best || textCapture;
     return {
       ...base,
-      ...(clippedText ? { hint: 'clippedText' as const } : {}),
       textBody,
       aligned,
       alignment: aligned ? 1 : base.alignment,

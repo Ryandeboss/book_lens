@@ -31,7 +31,6 @@ const scanner = useAutoScan(() => preview.value?.getVideo() ?? null);
 const {
   machine,
   detection,
-  acceptedRegion,
   width,
   height,
   running,
@@ -142,14 +141,6 @@ watch(isActive, (value) => {
           :height="height"
           :state="machine.state"
           :progress="machine.stableProgress"
-          :corners="
-            (machine.state === 'captured' ? acceptedRegion : detection)
-              ?.corners ?? null
-          "
-          :text-body="
-            (machine.state === 'captured' ? acceptedRegion : detection)
-              ?.textBody ?? null
-          "
         />
       </CameraPreview>
       <p class="scanner-status" role="status" :data-state="machine.state">

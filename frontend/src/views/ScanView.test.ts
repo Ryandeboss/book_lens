@@ -218,16 +218,7 @@ it('Done stops capture and waits for OCR already queued', async () => {
   expect(useScanStore().pages[0]?.rawText).toBe('Queued result');
   expect(router.currentRoute.value.path).toBe('/review');
 });
-it('waits on clipped text, then captures a focused guide view without paper edges', async () => {
-  vision.analyze.mockResolvedValue({
-    ...page(),
-    hint: 'clippedText',
-    aligned: false,
-  });
-  await ready();
-  await advance(1800);
-  expect(useScanStore().pages).toHaveLength(0);
-  expect(wrapper.text()).toContain('text is cut off at the camera edge');
+it('captures focused text without paper margins and sends the whole image', async () => {
   vision.analyze.mockResolvedValue({
     ...page(),
     source: 'guide',
@@ -239,8 +230,20 @@ it('waits on clipped text, then captures a focused guide view without paper edge
       { x: 0, y: 1 },
     ],
   });
+  await ready();
   await advance(1100);
   expect(useScanStore().pages).toHaveLength(1);
+  expect(vision.process).toHaveBeenCalledWith(
+    expect.anything(),
+    [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 1, y: 1 },
+      { x: 0, y: 1 },
+    ],
+    [],
+    null,
+  );
 });
 describe('continuous scan screen', () => {
   it('automatically saves source-resolution photos and waits two seconds before looking again', async () => {
@@ -262,7 +265,7 @@ describe('continuous scan screen', () => {
     await advance(2000);
     expect(vision.process).toHaveBeenCalledTimes(2);
   });
-  it('pauses automatic capture but manual capture refreshes geometry and uses the guide fallback', async () => {
+  it('pauses automatic capture but manual capture preserves the full camera image', async () => {
     await ready();
     await button('Pause').trigger('click');
     await advance(2000);
@@ -276,7 +279,12 @@ describe('continuous scan screen', () => {
     await flushPromises();
     expect(vision.process).toHaveBeenCalledWith(
       expect.anything(),
-      null,
+      [
+        { x: 0, y: 0 },
+        { x: 1, y: 0 },
+        { x: 1, y: 1 },
+        { x: 0, y: 1 },
+      ],
       [],
       null,
     );
@@ -388,7 +396,7 @@ describe('continuous scan screen', () => {
   });
 });
 
-it('freezes the accepted region during green feedback while cleanup remains pending', async () => {
+it('uses the fixed full-frame animation even when detected text covers a smaller region', async () => {
   engine.refine.mockReturnValue(new Promise(() => {}));
   const initial = page();
   initial.textBody = initial.corners;
@@ -397,6 +405,8 @@ it('freezes the accepted region during green feedback while cleanup remains pend
   await advance(650);
   expect(wrapper.get('[data-state]').attributes('data-state')).toBe('captured');
   const shape = wrapper.get('.accepted-region').attributes('points');
+  expect(shape).toBe('0,0 1920,0 1920,1080 0,1080');
+  expect(wrapper.find('.text-body').exists()).toBe(false);
   vision.analyze.mockResolvedValue({
     ...page(),
     corners: null,
@@ -448,9 +458,14 @@ it('automatically scans text without page edges and shows progress before green 
   expect(vision.process).toHaveBeenCalledOnce();
   expect(vision.process).toHaveBeenCalledWith(
     expect.anything(),
-    null,
+    [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 1, y: 1 },
+      { x: 0, y: 1 },
+    ],
     [],
-    d.textBody,
+    null,
   );
   expect(wrapper.get('[data-state]').attributes('data-state')).toBe('captured');
   expect(wrapper.find('.accepted-region').exists()).toBe(true);
@@ -559,7 +574,7 @@ it('schedules on video frames and never overlaps a busy worker', async () => {
   }
 });
 
-it('re-detects native photo coordinates instead of scaling preview corners across different fields of view', async () => {
+it('checks native photo focus and preserves the entire photo despite different preview corners', async () => {
   stillMode.source = 'photo';
   const native = {
     ...page(),
@@ -575,7 +590,12 @@ it('re-detects native photo coordinates instead of scaling preview corners acros
   await advance(900);
   expect(vision.process).toHaveBeenCalledWith(
     expect.anything(),
-    native.corners,
+    [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 1, y: 1 },
+      { x: 0, y: 1 },
+    ],
     [],
     null,
   );
