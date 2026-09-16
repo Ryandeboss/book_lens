@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@techstark/opencv-js": "^5.0.0-release.1",
+    "pdfmake": "^0.2.23",
     "pinia": "^4.0.3",
     "tesseract.js": "^7.0.0",
     "vue": "^3.5.42",
@@ -24,6 +25,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.20.2",
+    "@types/pdfmake": "^0.2.13",
     "@vitejs/plugin-vue": "^6.0.8",
     "@vue/test-utils": "^2.5.0",
     "eslint": "^10.10.0",

@@ -2,10 +2,11 @@
 
 In Review, **Download text** offers **TXT**, **PDF** and **DOCX** for the current edited text,
 in capture order. Pages set aside as duplicates are excluded from all text formats
-and from audio. PDF opens a local print preview: choose **Save as PDF** in the
-print dialog (disable browser headers/footers for a clean document). Unicode,
-line breaks and page boundaries are preserved; no text is uploaded. Allow
-pop-ups for BookLens if the preview is blocked. **Keep this page in document** includes a duplicate again in all
+and from audio. PDF downloads directly as `booklens-scan.pdf`; pop-up permission
+and browser printing support are not needed. It preserves line breaks, wraps long
+pages, and starts each captured page on a new PDF page. The bundled Roboto font
+supports common Latin, Greek and Cyrillic text; other scripts may need additional
+fonts. PDF code/fonts load only when requested and no text is uploaded. **Keep this page in document** includes a duplicate again in all
 exports. Downloads do not clear the saved draft.
 
 DOCX is a real Word document generated locally as an OOXML ZIP. It preserves

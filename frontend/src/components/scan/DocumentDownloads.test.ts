@@ -2,10 +2,12 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import DocumentDownloads from './DocumentDownloads.vue';
 import { createAudio } from '../../services/speechExport';
-import { printPdf } from '../../services/printPdf';
+import { createPdf } from '../../services/pdfExport';
 import { createDocx } from '../../services/documentExport';
 import { downloadBlob } from '../../services/downloadBlob';
-vi.mock('../../services/printPdf', () => ({ printPdf: vi.fn() }));
+vi.mock('../../services/pdfExport', () => ({
+  createPdf: vi.fn(async () => new Blob(['pdf'], { type: 'application/pdf' })),
+}));
 vi.mock('../../services/speechExport', () => ({ createAudio: vi.fn() }));
 vi.mock('../../services/documentExport', () => ({
   createDocx: vi.fn(() => new Blob(['docx'])),
@@ -116,7 +118,9 @@ it('requires confirmation for unfinished text and shows an actionable speech fai
   wrapper.unmount();
 });
 
-it('opens text format choices and routes PDF to print preview', async () => {
+it('downloads PDF even when pop-ups are blocked', async () => {
+  vi.spyOn(window, 'open').mockReturnValue(null);
+  vi.spyOn(window, 'print').mockImplementation(() => {});
   const wrapper = mount(DocumentDownloads, {
     props: { pages: ['Reviewed page'], pending: false },
   });
@@ -135,7 +139,37 @@ it('opens text format choices and routes PDF to print preview', async () => {
     .findAll('button')
     .find((b) => b.text() === 'PDF')!
     .trigger('click');
-  expect(printPdf).toHaveBeenCalledWith(['Reviewed page']);
+  await vi.waitFor(() =>
+    expect(downloadBlob).toHaveBeenCalledWith(
+      expect.any(Blob),
+      'booklens-scan.pdf',
+    ),
+  );
+  expect(createPdf).toHaveBeenCalledWith(['Reviewed page']);
+  expect(window.open).not.toHaveBeenCalled();
+  expect(window.print).not.toHaveBeenCalled();
   expect(wrapper.find('#text-export-formats').exists()).toBe(false);
+  wrapper.unmount();
+});
+
+it('shows a recoverable PDF generation error', async () => {
+  vi.mocked(createPdf).mockRejectedValueOnce(new Error('PDF failed'));
+  const wrapper = mount(DocumentDownloads, {
+    props: { pages: ['Page'], pending: false },
+  });
+  await wrapper.get('[aria-controls="text-export-formats"]').trigger('click');
+  await wrapper
+    .findAll('button')
+    .find((b) => b.text() === 'PDF')!
+    .trigger('click');
+  await vi.waitFor(() =>
+    expect(wrapper.get('[role=alert]').text()).toContain(
+      'PDF could not be created',
+    ),
+  );
+  expect(downloadBlob).not.toHaveBeenCalled();
+  expect(
+    wrapper.get('[aria-controls="text-export-formats"]').attributes('disabled'),
+  ).toBeUndefined();
   wrapper.unmount();
 });

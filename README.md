@@ -31,7 +31,7 @@ A detected page is perspective-corrected, including headings and footnotes. With
 
 Holding the same page can save it again after the pause. Once OCR finishes, a conservative text comparison sets likely duplicates aside with their original shot numbers. Review lets you inspect and restore them. Short pages and ambiguous matches stay in the document to avoid losing content.
 
-In Review, **Download text** offers TXT, PDF (via Save as PDF in print preview), and DOCX. The matching **Create audio** button generates an MP3. All formats exclude duplicates set aside. Cleanup now targets obvious stray-letter lines and neighboring-page fragments within the existing AI call. See [cleanup and export setup](docs/document-and-audio-export.md) for the Render speech settings, privacy and limits.
+In Review, **Download text** offers TXT, PDF, and DOCX. The matching **Create audio** button generates an MP3. All formats exclude duplicates set aside. Cleanup now targets obvious stray-letter lines and neighboring-page fragments within the existing AI call. See [cleanup and export setup](docs/document-and-audio-export.md) for the Render speech settings, privacy and limits.
 
 See the [automatic capture report and phone tuning checklist](docs/automatic-capture-verification.md) for the exact gates, compatibility fallbacks, tests, and settings. Physical iPhone/Android testing is still required.
 

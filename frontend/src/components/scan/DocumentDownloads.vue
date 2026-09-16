@@ -3,7 +3,6 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import { downloadText } from '../../services/downloadText';
 import { downloadBlob } from '../../services/downloadBlob';
 import { createAudio } from '../../services/speechExport';
-import { printPdf } from '../../services/printPdf';
 const formatsOpen = ref(false);
 const props = defineProps<{ pages: string[]; pending: boolean }>();
 const text = computed(() => props.pages.join('\n\n\n'));
@@ -46,17 +45,19 @@ async function docx() {
     documentBusy.value = false;
   }
 }
-function pdf() {
-  if (!allowed()) return;
+async function pdf() {
+  if (!allowed() || documentBusy.value) return;
+  const pages = [...props.pages];
+  formatsOpen.value = false;
+  documentBusy.value = true;
   error.value = '';
   try {
-    printPdf([...props.pages]);
-    formatsOpen.value = false;
-  } catch (cause) {
-    error.value =
-      cause instanceof Error
-        ? cause.message
-        : 'PDF preview could not open. Please try again.';
+    const { createPdf } = await import('../../services/pdfExport');
+    downloadBlob(await createPdf(pages), 'booklens-scan.pdf');
+  } catch {
+    error.value = 'The PDF could not be created. Please try again.';
+  } finally {
+    documentBusy.value = false;
   }
 }
 function releaseAudio() {
@@ -159,9 +160,7 @@ onUnmounted(releaseAudio);
           DOCX
         </button>
       </div>
-      <p class="scan-hint">
-        PDF opens print preview. Choose “Save as PDF” to save your document.
-      </p>
+      <p class="scan-hint">Choose a format to download your document.</p>
     </div>
     <p class="scan-hint audio-note">
       Audio creates an MP3 using Google speech. Usage charges may apply.
